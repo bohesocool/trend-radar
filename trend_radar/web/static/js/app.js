@@ -7,7 +7,7 @@
 
 const API = '/api';
 const TOKEN_KEY = 'trendradar_jwt';
-const CHART_JS_CDN = 'https://cdn.jsdelivr.net/npm/chart.js';
+const CHART_JS_CDN = '/static/js/chart.umd.min.js';
 
 /* ============================================================
    1. Auth Module
@@ -267,9 +267,10 @@ async function loadDashboard() {
   </div><div class="page-enter" id="page-body"><div id="run-result" class="run-result" style="display:none;"></div>${loadingHTML('正在加载最新报告…')}</div>`;
 
   try {
-    const [report, stats] = await Promise.all([
+    const [report, stats, dates] = await Promise.all([
       getJSON('/latest'),
       getJSON('/stats'),
+      getJSON('/dates').catch(() => []),
     ]);
 
     if (!report.date) {
@@ -283,7 +284,6 @@ async function loadDashboard() {
 
     const hotTopics = report.hot_topics || [];
     const suggestions = report.suggestions || [];
-    const dates = await getJSON('/dates').catch(() => []);
 
     let html = `
       <div class="stats-grid">
@@ -434,11 +434,15 @@ async function renderTrendChart(stats, dates) {
   if (!canvas) return;
 
   const ctx = canvas.getContext('2d');
+  /* SPA 下反复进入仪表盘会重复 new Chart，先销毁上一个实例避免泄漏 */
+  if (window._dashChart) {
+    try { window._dashChart.destroy(); } catch (_) { /* noop */ }
+  }
   const gradient = ctx.createLinearGradient(0, 0, 0, 240);
   gradient.addColorStop(0, 'rgba(94, 106, 210, 0.25)');
   gradient.addColorStop(1, 'rgba(94, 106, 210, 0)');
 
-  new Chart(ctx, {
+  window._dashChart = new Chart(ctx, {
     type: 'line',
     data: {
       labels,
@@ -535,7 +539,7 @@ async function loadTrends() {
       if (!knownOrder.includes(s)) sources.push(s);
     }
 
-    let dateSelector = `<div class="date-selector"><label>日期</label><select onchange="window.location.href='/trends?date='+this.value">`;
+    let dateSelector = `<div class="date-selector"><label>日期</label><select onchange="navigateTo('/trends?date='+this.value)">`;
     dates.forEach((d) => {
       dateSelector += `<option value="${esc(d)}" ${d === selectedDate ? 'selected' : ''}>${esc(d)}</option>`;
     });
@@ -695,7 +699,7 @@ async function loadSuggestions() {
     const report = await getJSON(`/report/${selectedDate}`);
     const suggestions = report.suggestions || [];
 
-    let dateSelector = `<div class="date-selector"><label>日期</label><select onchange="window.location.href='/suggestions?date='+this.value">`;
+    let dateSelector = `<div class="date-selector"><label>日期</label><select onchange="navigateTo('/suggestions?date='+this.value)">`;
     dates.forEach((d) => {
       dateSelector += `<option value="${esc(d)}" ${d === selectedDate ? 'selected' : ''}>${esc(d)}</option>`;
     });
@@ -1164,39 +1168,79 @@ async function handleLogin(event) {
 }
 
 /* ============================================================
-   10. Router — auto-init based on pathname
+   10. Router — SPA 局部导航
+   拦截站内链接，只替换 #content，不整页刷新（消除切页白屏与重复加载）
    ============================================================ */
 
-(async function init() {
+const routes = {
+  '/': loadDashboard,
+  '/trends': loadTrends,
+  '/suggestions': loadSuggestions,
+  '/archive': loadArchive,
+  '/settings': loadSettings,
+  '/login': loadLogin,
+};
+
+function resolveHandler(path) {
+  if (routes[path]) return routes[path];
+  if (/^\/suggestion\/\d+$/.test(path)) return loadSuggestionDetail;
+  return null;
+}
+
+/** 高亮侧边栏当前页 */
+function updateActiveNav(path) {
+  document.querySelectorAll('.nav-link').forEach((a) => {
+    const href = a.getAttribute('href');
+    const active = href === path || (href && href !== '/' && path.startsWith(href));
+    a.classList.toggle('active', !!active);
+  });
+}
+
+/** 渲染当前 URL 对应的页面 */
+async function runRoute() {
   const path = window.location.pathname.replace(/\/+$/, '') || '/';
-
-  const routes = {
-    '/': loadDashboard,
-    '/trends': loadTrends,
-    '/suggestions': loadSuggestions,
-    '/archive': loadArchive,
-    '/settings': loadSettings,
-    '/login': loadLogin,
-  };
-
-  let handler = routes[path];
-  // Dynamic route: /suggestion/{id}
-  if (!handler && /^\/suggestion\/\d+$/.test(path)) {
-    handler = loadSuggestionDetail;
+  updateActiveNav(path);
+  const handler = resolveHandler(path);
+  if (!handler) return;
+  try {
+    await handler();
+  } catch (e) {
+    console.error('[TrendRadar] Page init error:', e);
+    const content = document.getElementById('content');
+    if (content) content.innerHTML = errorHTML(e.message);
   }
-  if (handler) {
-    try {
-      await handler();
-    } catch (e) {
-      console.error('[TrendRadar] Page init error:', e);
-      const content = document.getElementById('content');
-      if (content) {
-        content.innerHTML = errorHTML(e.message);
-      }
-    }
-  }
+}
 
-  /* Bind theme toggle + logout button (present on all authenticated pages) */
+/** SPA 导航：改 URL + 重渲染主内容，不整页刷新 */
+async function navigateTo(path, replace) {
+  /* 移除服务端注入的 trends 数据残留，回到该页时走客户端渲染，保持一致 */
+  const ssr = document.getElementById('trends-data');
+  if (ssr) ssr.remove();
+  if (replace) history.replaceState({}, '', path);
+  else history.pushState({}, '', path);
+  window.scrollTo(0, 0);
+  await runRoute();
+}
+window.navigateTo = navigateTo;
+
+/* 拦截站内链接点击，改为局部导航 */
+document.addEventListener('click', (e) => {
+  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const a = e.target.closest('a');
+  if (!a) return;
+  const href = a.getAttribute('href');
+  if (!href || !href.startsWith('/')) return;        // 外链 / 锚点不拦截
+  if (a.target === '_blank' || a.hasAttribute('download')) return;
+  e.preventDefault();
+  navigateTo(href);
+});
+
+/* 浏览器前进 / 后退 */
+window.addEventListener('popstate', () => runRoute());
+
+/* 首次加载 */
+(function init() {
+  runRoute();
   initThemeToggle();
   initLogoutButtons();
 })();

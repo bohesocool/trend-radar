@@ -26,32 +26,62 @@ _STATIC_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
 
-# ===== 中间件: 静态文件禁缓存 =====
-from starlette.middleware.base import BaseHTTPMiddleware
+# ===== 静态资源版本号 (用于缓存失效) =====
+# 由 CSS/JS 文件的修改时间算出指纹；文件一变，URL 上的 ?v= 就变，浏览器缓存自动失效。
+import hashlib
 
-class NoCacheStaticMiddleware(BaseHTTPMiddleware):
+
+def _compute_asset_version() -> str:
+    h = hashlib.md5()
+    for rel in ("css/style.css", "js/app.js"):
+        try:
+            h.update(str((_STATIC_DIR / rel).stat().st_mtime_ns).encode())
+        except OSError:
+            pass
+    return h.hexdigest()[:8]
+
+
+_ASSET_VERSION = _compute_asset_version()
+
+
+# ===== 中间件: 静态资源长期缓存 + 响应压缩 =====
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.gzip import GZipMiddleware
+
+
+class StaticCacheMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         resp = await call_next(request)
         if request.url.path.startswith("/static/"):
-            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            resp.headers["Pragma"] = "no-cache"
-            resp.headers["Expires"] = "0"
+            # URL 带版本号 (?v=)，内容变更即换 URL，故可安全地长期不可变缓存。
+            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return resp
 
-app.add_middleware(NoCacheStaticMiddleware)
+
+app.add_middleware(StaticCacheMiddleware)
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 # API 路由
 app.include_router(router)
 app.include_router(settings_router)
 
 
-# ===== 页面路由 (全部禁缓存) =====
+# ===== 页面路由 (HTML 不缓存，但静态资源引用带版本号) =====
 
 _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}
 
-def _html(filename: str) -> HTMLResponse:
+
+def _read_template(filename: str) -> str:
+    """读取模板并给静态资源引用追加版本号，触发浏览器缓存失效。"""
     html = (_TEMPLATE_DIR / filename).read_text(encoding="utf-8")
-    return HTMLResponse(content=html, headers=_NO_CACHE)
+    return (
+        html.replace("/static/css/style.css", f"/static/css/style.css?v={_ASSET_VERSION}")
+        .replace("/static/js/app.js", f"/static/js/app.js?v={_ASSET_VERSION}")
+    )
+
+
+def _html(filename: str) -> HTMLResponse:
+    return HTMLResponse(content=_read_template(filename), headers=_NO_CACHE)
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -96,8 +126,7 @@ async def trends_page(request: Request) -> HTMLResponse:
     known_order = ["github", "hackernews", "reddit", "twitter", "arxiv"]
 
     if not dates:
-        html = (_TEMPLATE_DIR / "trends.html").read_text(encoding="utf-8")
-        return HTMLResponse(content=html, headers=_NO_CACHE)
+        return HTMLResponse(content=_read_template("trends.html"), headers=_NO_CACHE)
 
     selected_date = dates[0]
     # Support ?date= query param
@@ -139,7 +168,7 @@ async def trends_page(request: Request) -> HTMLResponse:
         ensure_ascii=False,
     )
 
-    html = (_TEMPLATE_DIR / "trends.html").read_text(encoding="utf-8")
+    html = _read_template("trends.html")
     # 在 </body> 前注入数据 + 内联 JS
     inject = f"""
     <script id="trends-data" type="application/json">{embedded_data}</script>
@@ -158,7 +187,7 @@ async def trends_page(request: Request) -> HTMLResponse:
       var loaded = {{}};
 
       // Date selector
-      var html = '<div class="date-selector"><label>日期</label><select onchange="window.location.href=\\'/trends?date=\\'+this.value">';
+      var html = '<div class="date-selector"><label>日期</label><select onchange="navigateTo(\\'/trends?date=\\'+this.value)">';
       dates.forEach(function(d) {{
         html += '<option value="' + d + '"' + (d === selectedDate ? ' selected' : '') + '>' + d + '</option>';
       }});
