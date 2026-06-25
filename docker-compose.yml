@@ -1,0 +1,28 @@
+version: "3.8"
+
+services:
+  trend-radar:
+    build: .
+    container_name: trend-radar
+    ports:
+      - "8088:8088"
+    volumes:
+      # 持久化数据
+      - ./data:/app/data
+      # 配置文件 (可编辑后重启生效)
+      - ./config.yaml:/app/config.yaml:ro
+      - ./.env:/app/.env:ro
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+      # JWT secret 如果在 .env 里设了就不需要这里再设
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8088/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

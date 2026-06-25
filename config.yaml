@@ -1,0 +1,67 @@
+# TrendRadar 配置文件
+
+# 数据采集
+collectors:
+  github_trending:
+    enabled: true
+    languages: ["python", "typescript", "rust", "go"]
+    since: "daily"
+  hackernews:
+    enabled: true
+    min_points: 100
+    ai_keywords: ["AI", "LLM", "GPT", "agent", "model", "transformer", "diffusion", "RAG", "fine-tune", "embedding"]
+  reddit:
+    enabled: true
+    subreddits: ["MachineLearning", "artificial", "LocalLLaMA"]
+    limit: 25
+  twitter:
+    enabled: true
+    accounts: ["karpathy", "_jasonwei", "swyxk", "cxiao"]
+    method: "nitter"
+  arxiv:
+    enabled: true
+    categories: ["cs.AI", "cs.CL", "cs.LG"]
+    max_results: 30
+
+# LLM 分析
+llm:
+  api_base: "${NEWAPI_BASE_URL}"
+  api_key: "${NEWAPI_API_KEY}"
+  model: "${NEWAPI_MODEL}"
+  temperature: 0.7
+  max_tokens: 8000
+
+# 生成器
+generator:
+  daily_suggestions: 5
+  weekly_suggestions: 12
+  generate_scaffold: true
+  languages: ["python"]
+
+# 推送
+pusher:
+  qq_bot:
+    enabled: true
+    webhook: "${QQ_BOT_WEBHOOK}"
+  telegram:
+    enabled: true
+    bot_token: "${TG_BOT_TOKEN}"
+    chat_id: "${TG_CHAT_ID}"
+  github:
+    enabled: true
+    token: "${GH_TOKEN}"
+    repo: "${GH_REPO}"
+
+# 定时任务
+scheduler:
+  daily:
+    enabled: true
+    cron: "0 8 * * *"
+  weekly:
+    enabled: true
+    cron: "0 9 * * 1"
+
+# Web 服务
+web:
+  host: "0.0.0.0"
+  port: 8088
