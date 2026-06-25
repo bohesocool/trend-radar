@@ -1,14 +1,13 @@
-"""GitHub 仓库自动同步 — 将报告和脚手架推送到 GitHub 仓库。"""
+"""GitHub 仓库自动同步 — 将报告推送到 GitHub 仓库。"""
 
 from __future__ import annotations
 
 import base64
-from pathlib import Path
 
 import httpx
 from loguru import logger
 
-from trend_radar.config import get_config, get_project_root
+from trend_radar.config import get_config
 
 _GH_API = "https://api.github.com"
 
@@ -33,22 +32,6 @@ def sync_to_github(date_str: str, report_markdown: str) -> bool:
     path = f"data/reports/{date_str}/daily.md"
 
     return _push_file(token, repo, path, report_markdown, f"Daily report {date_str}")
-
-
-def sync_scaffold_to_github(date_str: str, project_name: str, files: dict[str, str]) -> bool:
-    """将脚手架文件同步到 GitHub。"""
-    cfg = get_config().get("pusher", {}).get("github", {})
-    if not cfg.get("enabled") or not cfg.get("token") or not cfg.get("repo"):
-        return False
-
-    token = cfg["token"]
-    repo = cfg["repo"]
-    success = True
-    for filename, content in files.items():
-        path = f"data/reports/{date_str}/scaffolds/{project_name}/{filename}"
-        if not _push_file(token, repo, path, content, f"Scaffold {project_name}/{filename}"):
-            success = False
-    return success
 
 
 def _push_file(token: str, repo: str, path: str, content: str, commit_msg: str) -> bool:

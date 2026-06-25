@@ -89,9 +89,6 @@ class ProjectSuggestion:
     readme_strategy: str = ""
     naming_tips: str = ""
 
-    # 脚手架文件 {filename: content}
-    scaffold_files: dict[str, str] = field(default_factory=dict)
-
 
 @dataclass
 class DailyReport:

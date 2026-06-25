@@ -58,7 +58,6 @@ def init_db() -> None:
                 category TEXT,
                 description TEXT,
                 full_data TEXT,
-                scaffold_files TEXT,
                 created_at TEXT DEFAULT (datetime('now'))
             );
 
@@ -150,13 +149,13 @@ def save_analysis(date_str: str, summary: str, hot_topics: list, opportunities: 
         )
 
 
-def save_suggestion(date_str: str, name: str, tagline: str, category: str, description: str, full_data: dict, scaffold_files: dict) -> None:
+def save_suggestion(date_str: str, name: str, tagline: str, category: str, description: str, full_data: dict) -> None:
     """保存项目建议。"""
     with _get_conn() as conn:
         conn.execute(
             """
-            INSERT INTO suggestions (date, name, tagline, category, description, full_data, scaffold_files)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO suggestions (date, name, tagline, category, description, full_data)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 date_str,
@@ -165,7 +164,6 @@ def save_suggestion(date_str: str, name: str, tagline: str, category: str, descr
                 category,
                 description,
                 json.dumps(full_data, ensure_ascii=False),
-                json.dumps(scaffold_files, ensure_ascii=False),
             ),
         )
 

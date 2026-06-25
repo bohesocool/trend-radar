@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import datetime
 from pathlib import Path
 
@@ -97,8 +96,7 @@ async def run_daily() -> DailyReport:
             s.tagline,
             s.category,
             s.description,
-            json.dumps(s.__dict__, ensure_ascii=False, default=str),
-            json.dumps(s.scaffold_files, ensure_ascii=False),
+            s.__dict__,
         )
 
     # 4. 生成报告

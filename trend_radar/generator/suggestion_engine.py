@@ -264,5 +264,4 @@ def _parse_suggestion(data: dict[str, Any]) -> ProjectSuggestion:
         repo_structure=data.get("repo_structure", ""),
         readme_strategy=data.get("readme_strategy", ""),
         naming_tips=data.get("naming_tips", ""),
-        scaffold_files=data.get("scaffold_files", {}),
     )

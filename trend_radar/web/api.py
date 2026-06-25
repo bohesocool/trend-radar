@@ -7,10 +7,8 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import PlainTextResponse
 
 from trend_radar import db
-from trend_radar.config import get_project_root
 from trend_radar.web.auth import require_auth
 
 router = APIRouter(prefix="/api")
@@ -55,7 +53,6 @@ def get_report_by_date(date: str) -> dict[str, Any]:
             "viral_hooks": full.get("viral_hooks", []),
             "similar_projects": full.get("similar_projects", []),
             "readme_strategy": full.get("readme_strategy", ""),
-            "has_scaffold": bool(s.get("scaffold_files")),
         })
 
     return {
@@ -142,24 +139,6 @@ def get_trends_summary(date: str) -> dict[str, Any]:
         src = item.get("source") or "unknown"
         counts[src] = counts.get(src, 0) + 1
     return {"date": date, "total": len(items), "sources": counts}
-
-
-@router.get("/scaffold/{date}/{name}/{filename}", response_class=PlainTextResponse)
-def get_scaffold_file(date: str, name: str, filename: str) -> str:
-    """下载脚手架文件。"""
-    path = get_project_root() / "data" / "reports" / date / "scaffolds" / name / filename
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="文件不存在")
-    return path.read_text(encoding="utf-8")
-
-
-@router.get("/scaffold-files/{date}/{name}")
-def list_scaffold_files(date: str, name: str) -> list[str]:
-    """列出一个项目脚手架的所有文件。"""
-    base = get_project_root() / "data" / "reports" / date / "scaffolds" / name
-    if not base.exists():
-        return []
-    return [f.name for f in base.rglob("*") if f.is_file()]
 
 
 @router.get("/stats")
