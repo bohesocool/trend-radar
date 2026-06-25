@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -28,31 +28,38 @@ app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 app.include_router(router)
 
 
-# ===== 页面路由 =====
+# ===== 页面路由 (全部禁缓存) =====
+
+_NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}
+
+def _html(filename: str) -> HTMLResponse:
+    html = (_TEMPLATE_DIR / filename).read_text(encoding="utf-8")
+    return HTMLResponse(content=html, headers=_NO_CACHE)
+
 
 @app.get("/login", response_class=HTMLResponse)
-async def login_page() -> str:
-    return (_TEMPLATE_DIR / "login.html").read_text(encoding="utf-8")
+async def login_page() -> HTMLResponse:
+    return _html("login.html")
 
 
 @app.get("/", response_class=HTMLResponse)
-async def dashboard() -> str:
-    return (_TEMPLATE_DIR / "dashboard.html").read_text(encoding="utf-8")
+async def dashboard() -> HTMLResponse:
+    return _html("dashboard.html")
 
 
 @app.get("/trends", response_class=HTMLResponse)
-async def trends_page() -> str:
-    return (_TEMPLATE_DIR / "trends.html").read_text(encoding="utf-8")
+async def trends_page() -> HTMLResponse:
+    return _html("trends.html")
 
 
 @app.get("/suggestions", response_class=HTMLResponse)
-async def suggestions_page() -> str:
-    return (_TEMPLATE_DIR / "suggestions.html").read_text(encoding="utf-8")
+async def suggestions_page() -> HTMLResponse:
+    return _html("suggestions.html")
 
 
 @app.get("/archive", response_class=HTMLResponse)
-async def archive_page() -> str:
-    return (_TEMPLATE_DIR / "archive.html").read_text(encoding="utf-8")
+async def archive_page() -> HTMLResponse:
+    return _html("archive.html")
 
 
 # ===== 登录端点 =====
