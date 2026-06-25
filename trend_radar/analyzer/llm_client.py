@@ -62,7 +62,10 @@ class LLMClient:
 
     @staticmethod
     def _parse_json(text: str) -> dict[str, Any] | list[Any]:
-        """从 LLM 回复中提取 JSON (支持 markdown code fence 包裹)。"""
+        """从 LLM 回复中提取 JSON (支持 markdown code fence 包裹 + 容错修复)。"""
+        if not text or not text.strip():
+            raise ValueError("LLM 返回空响应，无法解析 JSON")
+
         # 去掉 ```json ... ``` 包裹
         if "```" in text:
             lines = text.split("\n")
@@ -75,12 +78,41 @@ class LLMClient:
                 if in_code or not json_lines:
                     json_lines.append(line)
             text = "\n".join(json_lines) if json_lines else text
+
+        # 先尝试直接解析
         try:
             return json.loads(text)
         except json.JSONDecodeError:
-            # 尝试找到第一个 { 和最后一个 }
-            start = text.find("{")
-            end = text.rfind("}")
-            if start != -1 and end != -1:
-                return json.loads(text[start : end + 1])
-            raise ValueError(f"无法解析 LLM JSON 响应: {text[:200]}")
+            pass
+
+        # 尝试找到第一个 { 和最后一个 }
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1:
+            candidate = text[start : end + 1]
+            # 尝试修复常见的 LLM JSON 错误
+            # 1. 尾部逗号: {"a": 1,} → {"a": 1}
+            import re
+            candidate = re.sub(r",\s*}", "}", candidate)
+            candidate = re.sub(r",\s*]", "]", candidate)
+            # 2. 尝试解析
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
+            # 3. 如果还是失败，尝试逐层截断 (可能是输出被 max_tokens 截断)
+            # 找到最后一个完整的 } 并截断
+            for i in range(len(candidate) - 1, 0, -1):
+                if candidate[i] == "}":
+                    try:
+                        # 尝试在当前位置截断并补全
+                        truncated = candidate[: i + 1]
+                        # 确保括号匹配
+                        opens = truncated.count("{")
+                        closes = truncated.count("}")
+                        if opens > closes:
+                            truncated += "}" * (opens - closes)
+                        return json.loads(truncated)
+                    except json.JSONDecodeError:
+                        continue
+        raise ValueError(f"无法解析 LLM JSON 响应 (长度={len(text)}, 前200字符): {text[:200]}")
