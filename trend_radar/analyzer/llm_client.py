@@ -24,19 +24,36 @@ class LLMClient:
         self.temperature = cfg.get("temperature", 0.7)
         self.max_tokens = cfg.get("max_tokens", 8000)
 
-    def chat(self, system_prompt: str, user_prompt: str) -> str:
-        """调用 chat completions，返回文本响应。"""
-        logger.debug(f"LLM 调用: model={self.model}, system_len={len(system_prompt)}")
-        resp = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-        )
-        return resp.choices[0].message.content or ""
+    def chat(self, system_prompt: str, user_prompt: str, max_retries: int = 2) -> str:
+        """调用 chat completions，返回文本响应。失败自动重试。"""
+        for attempt in range(max_retries + 1):
+            try:
+                logger.debug(f"LLM 调用 (attempt {attempt+1}): model={self.model}, system_len={len(system_prompt)}")
+                resp = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                    timeout=120,
+                )
+                content = resp.choices[0].message.content or ""
+                if content.strip():
+                    return content
+                logger.warning(f"LLM 返回空响应 (attempt {attempt+1})")
+                if attempt < max_retries:
+                    import time
+                    time.sleep(3)
+            except Exception as e:
+                logger.warning(f"LLM 调用失败 (attempt {attempt+1}): {e}")
+                if attempt < max_retries:
+                    import time
+                    time.sleep(3)
+                else:
+                    raise
+        return ""
 
     def chat_json(self, system_prompt: str, user_prompt: str) -> dict[str, Any] | list[Any]:
         """调用 LLM 并尝试解析 JSON 响应。"""

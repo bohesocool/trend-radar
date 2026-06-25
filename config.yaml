@@ -4,7 +4,7 @@
 collectors:
   github_trending:
     enabled: true
-    languages: ["python", "typescript", "rust", "go"]
+    languages: ["python"]  # 先只采 python，加快速度
     since: "daily"
   hackernews:
     enabled: true
@@ -15,9 +15,9 @@ collectors:
     subreddits: ["MachineLearning", "artificial", "LocalLLaMA"]
     limit: 25
   twitter:
-    enabled: true
+    enabled: false
     accounts: ["karpathy", "_jasonwei", "swyxk", "cxiao"]
-    method: "nitter"
+    method: "rsshub"
   arxiv:
     enabled: true
     categories: ["cs.AI", "cs.CL", "cs.LG"]
@@ -25,7 +25,7 @@ collectors:
 
 # LLM 分析
 llm:
-  api_base: "${NEWAPI_BASE_URL}"
+  api_base: "${NEWAPI_BASE_URL}/v1"
   api_key: "${NEWAPI_API_KEY}"
   model: "${NEWAPI_MODEL}"
   temperature: 0.7
@@ -33,24 +33,24 @@ llm:
 
 # 生成器
 generator:
-  daily_suggestions: 5
-  weekly_suggestions: 12
+  daily_suggestions: 3
+  weekly_suggestions: 8
   generate_scaffold: true
   languages: ["python"]
 
 # 推送
 pusher:
   qq_bot:
-    enabled: true
-    webhook: "${QQ_BOT_WEBHOOK}"
+    enabled: false
+    webhook: ""
   telegram:
-    enabled: true
-    bot_token: "${TG_BOT_TOKEN}"
-    chat_id: "${TG_CHAT_ID}"
+    enabled: false
+    bot_token: ""
+    chat_id: ""
   github:
-    enabled: true
-    token: "${GH_TOKEN}"
-    repo: "${GH_REPO}"
+    enabled: false
+    token: ""
+    repo: ""
 
 # 定时任务
 scheduler:

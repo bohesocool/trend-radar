@@ -86,7 +86,11 @@ async def run_daily() -> DailyReport:
     # 3. 生成建议
     logger.info("Step 3/5: 项目建议生成...")
     n = get_config()["generator"]["daily_suggestions"]
-    suggestions = generate_suggestions(analysis, n)
+    try:
+        suggestions = generate_suggestions(analysis, n)
+    except Exception as e:
+        logger.error(f"项目建议生成失败: {e}")
+        suggestions = []
     for s in suggestions:
         db.save_suggestion(
             date_str,
