@@ -1,4 +1,11 @@
-"""项目建议生成引擎 — 基于趋势分析生成具体可执行的项目建议。"""
+"""项目建议生成引擎 — 基于趋势分析生成具体可执行的项目建议。
+
+分两层：
+1. generate_suggestions(): 轻量报告，只产出基础+市场+技术分析（不含脚手架/详细架构），
+   JSON 短，几乎不会因截断而失败。用于日报主流程。
+2. generate_architecture() / generate_readme_strategy(): 按需在详情页点按钮时单独调用，
+   各自一个聚焦 prompt，生成更重的内容。
+"""
 
 from __future__ import annotations
 
@@ -19,12 +26,9 @@ _SYSTEM_PROMPT = """你是一名开源项目创业顾问，擅长找到「能在
 2. 与现有项目的差异化分析
 3. 具体技术方案 (tech stack + 核心功能)
 4. MVP 功能和时间线
-5. README 营销策略 (好的 README 是 star 增长的关键)
-6. 可直接使用的脚手架代码骨架
 
 GitHub star 增长策略：
 - 命名：短小好记 ≤15字符，能直觉暗示功能
-- README：第一行是亮点 tagline；必须要有 GIF 动图演示位置；一键安装命令；对比表格
 - 时机：蹭热点论文 (arXiv <7天)，补空白 (有讨论无实现)，跨界组合
 - 病毒因子：CLI > Web > 库；视觉冲击力；低门槛 (一行命令能用)；有趣 > 有用
 
@@ -58,18 +62,9 @@ _USER_PROMPT_TEMPLATE = """基于以下 {date} 的趋势分析结果，生成 1 
       "viral_hooks": ["病毒传播因素1", "因素2"],
       "tech_stack": ["Python", "Click", "httpx"],
       "key_features": ["核心功能1", "功能2", "功能3"],
-      "architecture": "简要架构描述",
       "mvp_features": ["MVP该做的功能1", "功能2"],
       "timeline": "2-3天可出MVP",
-      "difficulty": "easy 或 medium 或 hard",
-      "repo_structure": "推荐目录结构 (markdown格式)",
-      "readme_strategy": "README该怎么写才能吸引star",
-      "naming_tips": "命名建议",
-      "scaffold_files": {{
-        "README.md": "完整的README.md内容",
-        "main.py": "主程序入口骨架代码",
-        "requirements.txt": "依赖列表"
-      }}
+      "difficulty": "easy 或 medium 或 hard"
     }}
   ]
 }}
@@ -77,16 +72,13 @@ _USER_PROMPT_TEMPLATE = """基于以下 {date} 的趋势分析结果，生成 1 
 
 要求：
 - 只生成 1 个建议
-- scaffold_files 中的代码不要超过 50 行（保持精简骨架，不要写完整实现）
-- scaffold_files 至少包含 README.md 和主程序文件
-- README.md 要写营销型文案，包含安装、使用、对比表格
+- 这是一份轻量报告，不要输出脚手架代码、目录结构或 README 文案（这些会在详情页按需生成）
 - 项目名要检查不会与知名项目重名
-- scaffold_files 中的代码要可以直接运行 (不能是伪代码)
 - {index_hint}"""
 
 
 def generate_suggestions(analysis: TrendAnalysis, n: int = 5) -> list[ProjectSuggestion]:
-    """基于趋势分析生成项目建议。每次只生成 1 个，循环调用 N 次以提高成功率。"""
+    """基于趋势分析生成轻量项目建议。每次只生成 1 个，循环调用 N 次以提高成功率。"""
     if not analysis.hot_topics and not analysis.emerging_opportunities:
         logger.warning("无趋势数据，跳过建议生成")
         return []
@@ -170,6 +162,87 @@ def generate_suggestions(analysis: TrendAnalysis, n: int = 5) -> list[ProjectSug
 
     logger.info(f"共生成 {len(suggestions)}/{n} 个项目建议")
     return suggestions
+
+
+# ===== 按需生成（详情页点按钮时调用） =====
+
+_ARCH_SYSTEM_PROMPT = """你是一名资深软件架构师。基于给定的项目建议，输出清晰、可落地的技术架构与目录结构。
+必须严格按照 JSON 格式回复。"""
+
+_ARCH_USER_TEMPLATE = """为以下项目设计架构与目录结构：
+
+项目名: {name}
+一句话: {tagline}
+分类: {category}
+描述: {description}
+技术栈: {tech_stack}
+核心功能: {key_features}
+
+请输出 JSON：
+```json
+{{
+  "architecture": "详细架构说明：模块划分、数据流、关键技术选型与理由（300字以内，可用换行）",
+  "repo_structure": "推荐目录结构，用 markdown 代码块形式的目录树，并对关键文件加一行注释"
+}}
+```
+要求：架构要具体到模块和数据流，目录结构要可直接照着建。"""
+
+
+_README_SYSTEM_PROMPT = """你是一名擅长开源项目营销的增长顾问。基于给定的项目建议，输出能驱动 GitHub star 增长的 README 策略与命名建议。
+必须严格按照 JSON 格式回复。"""
+
+_README_USER_TEMPLATE = """为以下项目设计 README 营销策略与命名建议：
+
+项目名: {name}
+一句话: {tagline}
+分类: {category}
+描述: {description}
+目标用户: {target_audience}
+病毒因子: {viral_hooks}
+
+请输出 JSON：
+```json
+{{
+  "readme_strategy": "README 该怎么写才能吸引 star：第一行 tagline、GIF 动图位置、一键安装命令、对比表格、使用示例等具体建议（300字以内，可用换行）",
+  "naming_tips": "命名建议：为什么这个名字好/可以怎么调整，以及备选名"
+}}
+```"""
+
+
+def generate_architecture(suggestion: ProjectSuggestion) -> dict[str, str]:
+    """按需生成架构与目录结构。返回 {'architecture', 'repo_structure'}。"""
+    llm = LLMClient()
+    user_prompt = _ARCH_USER_TEMPLATE.format(
+        name=suggestion.name,
+        tagline=suggestion.tagline,
+        category=suggestion.category,
+        description=suggestion.description,
+        tech_stack=", ".join(suggestion.tech_stack),
+        key_features=", ".join(suggestion.key_features),
+    )
+    result = llm.chat_json(_ARCH_SYSTEM_PROMPT, user_prompt)
+    return {
+        "architecture": result.get("architecture", ""),
+        "repo_structure": result.get("repo_structure", ""),
+    }
+
+
+def generate_readme_strategy(suggestion: ProjectSuggestion) -> dict[str, str]:
+    """按需生成 README 营销策略与命名建议。返回 {'readme_strategy', 'naming_tips'}。"""
+    llm = LLMClient()
+    user_prompt = _README_USER_TEMPLATE.format(
+        name=suggestion.name,
+        tagline=suggestion.tagline,
+        category=suggestion.category,
+        description=suggestion.description,
+        target_audience=suggestion.target_audience,
+        viral_hooks=", ".join(suggestion.viral_hooks),
+    )
+    result = llm.chat_json(_README_SYSTEM_PROMPT, user_prompt)
+    return {
+        "readme_strategy": result.get("readme_strategy", ""),
+        "naming_tips": result.get("naming_tips", ""),
+    }
 
 
 def _parse_suggestion(data: dict[str, Any]) -> ProjectSuggestion:

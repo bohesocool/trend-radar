@@ -281,6 +281,11 @@ async def suggestions_page() -> HTMLResponse:
     return _html("suggestions.html")
 
 
+@app.get("/suggestion/{suggestion_id}", response_class=HTMLResponse)
+async def suggestion_detail_page(suggestion_id: int) -> HTMLResponse:
+    return _html("suggestion_detail.html")
+
+
 @app.get("/archive", response_class=HTMLResponse)
 async def archive_page() -> HTMLResponse:
     return _html("archive.html")

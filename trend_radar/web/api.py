@@ -6,11 +6,12 @@ import json
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 
 from trend_radar import db
 from trend_radar.config import get_project_root
+from trend_radar.web.auth import require_auth
 
 router = APIRouter(prefix="/api")
 
@@ -71,6 +72,56 @@ def get_report_by_date(date: str) -> dict[str, Any]:
 def list_dates() -> list[str]:
     """列出有报告的所有日期。"""
     return db.list_dates_with_data()
+
+
+@router.get("/suggestion/{suggestion_id}")
+def get_suggestion(suggestion_id: int) -> dict[str, Any]:
+    """获取单个项目建议的完整数据（供详情页使用）。"""
+    row = db.get_suggestion_by_id(suggestion_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="无此建议")
+    full = json.loads(row.get("full_data", "{}"))
+    full["id"] = row["id"]
+    full["date"] = row["date"]
+    return full
+
+
+@router.post("/suggestion/{suggestion_id}/architecture")
+def gen_suggestion_architecture(suggestion_id: int, auth: bool = Depends(require_auth)) -> dict[str, Any]:
+    """按需生成架构与目录结构，存回 full_data 并返回。"""
+    return _generate_and_store(suggestion_id, "architecture")
+
+
+@router.post("/suggestion/{suggestion_id}/readme")
+def gen_suggestion_readme(suggestion_id: int, auth: bool = Depends(require_auth)) -> dict[str, Any]:
+    """按需生成 README 营销策略与命名建议，存回 full_data 并返回。"""
+    return _generate_and_store(suggestion_id, "readme")
+
+
+def _generate_and_store(suggestion_id: int, kind: str) -> dict[str, Any]:
+    from trend_radar.generator.suggestion_engine import (
+        _parse_suggestion,
+        generate_architecture,
+        generate_readme_strategy,
+    )
+
+    row = db.get_suggestion_by_id(suggestion_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="无此建议")
+    full = json.loads(row.get("full_data", "{}"))
+    suggestion = _parse_suggestion(full)
+
+    try:
+        if kind == "architecture":
+            generated = generate_architecture(suggestion)
+        else:
+            generated = generate_readme_strategy(suggestion)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"生成失败: {e}")
+
+    full.update(generated)
+    db.update_suggestion_full_data(suggestion_id, full)
+    return generated
 
 
 @router.get("/trends/{date}")

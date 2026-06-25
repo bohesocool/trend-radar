@@ -20,10 +20,9 @@ from trend_radar.collectors import (
     TwitterAICollector,
 )
 from trend_radar.config import get_config, get_project_root
-from trend_radar.generator.scaffold_builder import build_all_scaffolds
 from trend_radar.generator.suggestion_engine import generate_suggestions
 from trend_radar.models import DailyReport
-from trend_radar.pusher.github_sync import sync_scaffold_to_github, sync_to_github
+from trend_radar.pusher.github_sync import sync_to_github
 from trend_radar.pusher.message_formatter import render_daily_report_markdown, render_message_summary
 from trend_radar.pusher.qq_bot import send_qq
 from trend_radar.pusher.telegram_bot import send_telegram
@@ -102,10 +101,8 @@ async def run_daily() -> DailyReport:
             json.dumps(s.scaffold_files, ensure_ascii=False),
         )
 
-    # 4. 生成脚手架 + 报告
-    logger.info("Step 4/5: 脚手架生成...")
-    build_all_scaffolds(suggestions, date_str)
-
+    # 4. 生成报告
+    logger.info("Step 4/5: 报告生成...")
     report = DailyReport(date=date_str, analysis=analysis, suggestions=suggestions)
     report.markdown = render_daily_report_markdown(report)
 
@@ -121,9 +118,6 @@ async def run_daily() -> DailyReport:
     send_telegram(summary)
     send_qq(summary)
     sync_to_github(date_str, report.markdown)
-    for s in suggestions:
-        if s.scaffold_files:
-            sync_scaffold_to_github(date_str, s.name, s.scaffold_files)
 
     logger.info(f"===== TrendRadar 日报完成 {date_str} =====")
     return report

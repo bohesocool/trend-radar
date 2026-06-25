@@ -180,6 +180,25 @@ def get_suggestions_by_date(date_str: str) -> list[dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
+def get_suggestion_by_id(suggestion_id: int) -> dict[str, Any] | None:
+    """按 id 读取单个项目建议。"""
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM suggestions WHERE id = ?",
+            (suggestion_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def update_suggestion_full_data(suggestion_id: int, full_data: dict) -> None:
+    """覆盖更新某个建议的 full_data（用于详情页按需补充架构/README 等内容）。"""
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE suggestions SET full_data = ? WHERE id = ?",
+            (json.dumps(full_data, ensure_ascii=False, default=str), suggestion_id),
+        )
+
+
 def get_analysis_by_date(date_str: str) -> dict[str, Any] | None:
     """读取指定日期的趋势分析。"""
     with _get_conn() as conn:

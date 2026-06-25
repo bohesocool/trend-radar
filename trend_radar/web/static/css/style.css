@@ -1813,3 +1813,63 @@ p {
 [data-theme="light"] .date-selector select {
   background-color: var(--bg-panel);
 }
+
+/* ---------- 19. Suggestion Card Link + Detail Page ---------- */
+.suggestion-card-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.suggestion-cta {
+  margin-top: 14px;
+  font-size: 13px;
+  font-weight: 510;
+  color: var(--accent-violet);
+}
+
+.suggestion-card-link:hover .suggestion-cta {
+  text-decoration: underline;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 18px;
+  font-size: 13px;
+  color: var(--text-tertiary);
+  text-decoration: none;
+}
+
+.back-link:hover {
+  color: var(--text-primary);
+}
+
+.detail-header {
+  margin-bottom: 20px;
+}
+
+.detail-section {
+  margin-bottom: 16px;
+}
+
+.detail-text {
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--text-secondary);
+  margin: 8px 0 0;
+}
+
+.detail-section-body .code-block {
+  background: var(--surface-2, rgba(127, 127, 127, 0.08));
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm, 6px);
+  padding: 14px 16px;
+  margin: 10px 0 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre;
+  overflow-x: auto;
+}

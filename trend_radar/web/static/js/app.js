@@ -116,6 +116,11 @@ async function getJSON(path) {
   return fetchWithAuth(`${API}${path}`);
 }
 
+/** Shorthand for POST JSON (no body needed for our on-demand generate endpoints). */
+async function postJSON(path) {
+  return fetchWithAuth(`${API}${path}`, { method: 'POST' });
+}
+
 /* ============================================================
    3. Helpers
    ============================================================ */
@@ -708,13 +713,10 @@ async function loadSuggestions() {
     html += `<div class="suggestions-grid">`;
 
     for (const s of suggestions) {
-      const techStack = s.tech_stack || [];
-      const keyFeatures = s.key_features || [];
-      const similarProjects = s.similar_projects || [];
-      const viralHooks = s.viral_hooks || [];
+      const techStack = (s.tech_stack || []).slice(0, 5);
 
       html += `
-        <div class="suggestion-card">
+        <a class="suggestion-card suggestion-card-link" href="/suggestion/${s.id}">
           <div class="suggestion-head">
             <div class="suggestion-name">${esc(s.name)}</div>
             ${categoryBadge(s.category)}
@@ -728,70 +730,16 @@ async function loadSuggestions() {
             ${s.difficulty ? `<span class="meta-item ${difficultyClass(s.difficulty)}">${esc(s.difficulty)}</span>` : ''}
           </div>`;
 
-      if (keyFeatures.length) {
-        html += `<div class="suggestion-section">
-          <div class="section-label">核心功能</div>
-          <ul class="key-features">
-            ${keyFeatures.map((f) => `<li>${esc(f)}</li>`).join('')}
-          </ul>
-        </div>`;
-      }
-
       if (techStack.length) {
         html += `<div class="suggestion-section">
-          <div class="section-label">技术栈</div>
           <div style="display:flex; flex-wrap:wrap; gap:6px;">
             ${techStack.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}
           </div>
         </div>`;
       }
 
-      if (similarProjects.length) {
-        html += `<div class="suggestion-section">
-          <div class="section-label">类似项目对比</div>
-          <table class="compare-table">
-            <thead><tr><th>项目</th><th>Star</th><th>我们的优势</th></tr></thead>
-            <tbody>`;
-        similarProjects.forEach((p) => {
-          html += `<tr>
-            <td>${esc(p.name || '')}</td>
-            <td style="color:var(--text-tertiary);">${esc(p.stars || '')}</td>
-            <td class="col-advantage">${esc(p.our_advantage || '')}</td>
-          </tr>`;
-        });
-        html += `</tbody></table></div>`;
-      }
-
-      if (viralHooks.length) {
-        html += `<div class="suggestion-section">
-          <div class="section-label">病毒传播因素</div>
-          <div style="font-size:13px; color:var(--text-secondary); line-height:1.7;">
-            ${viralHooks.map((h) => `<span class="badge badge-rising" style="margin:2px;">${esc(h)}</span>`).join(' ')}
-          </div>
-        </div>`;
-      }
-
-      /* Scaffold files */
-      if (s.has_scaffold) {
-        try {
-          const files = await getJSON(`/scaffold-files/${encodeURIComponent(selectedDate)}/${encodeURIComponent(s.name)}`);
-          if (files.length) {
-            html += `<div class="scaffold-section">
-              <div class="scaffold-label">脚手架文件</div>
-              <div class="scaffold-files">
-                ${files.map((f) => {
-                  const href = `${API}/scaffold/${encodeURIComponent(selectedDate)}/${encodeURIComponent(s.name)}/${encodeURIComponent(f)}`;
-                  return `<a href="${href}" target="_blank" class="scaffold-link">↓ ${esc(f)}</a>`;
-                }).join('')}
-              </div>
-            </div>`;
-          }
-        } catch (e) {
-          /* scaffold fetch failed — skip silently */
-        }
-      }
-
-      html += `</div>`;
+      html += `<div class="suggestion-cta">查看详情 →</div>`;
+      html += `</a>`;
     }
 
     html += `</div>`;
@@ -804,6 +752,157 @@ async function loadSuggestions() {
 /* ============================================================
    8. Archive Page
    ============================================================ */
+
+/* ============================================================
+   7b. Suggestion Detail Page
+   ============================================================ */
+
+let _detailSuggestionId = null;
+
+/** Render a text block that may contain ```fenced code``` — code → <pre>, text → <br>. */
+function renderTextBlock(text) {
+  if (!text) return '';
+  const parts = String(text).split('```');
+  let out = '';
+  parts.forEach((part, i) => {
+    if (i % 2 === 1) {
+      // code block — drop an optional leading language line
+      const body = part.replace(/^[a-zA-Z0-9_-]*\n/, '');
+      out += `<pre class="code-block">${esc(body.replace(/\n+$/, ''))}</pre>`;
+    } else if (part.trim()) {
+      out += `<p class="detail-text">${esc(part.trim()).replace(/\n/g, '<br>')}</p>`;
+    }
+  });
+  return out;
+}
+
+function genSectionHTML(title, key1, key2, full, btnLabel, handler) {
+  const has = (full[key1] && full[key1].length) || (key2 && full[key2] && full[key2].length);
+  let inner;
+  if (has) {
+    inner = renderTextBlock(full[key1]);
+    if (key2 && full[key2]) inner += renderTextBlock(full[key2]);
+  } else {
+    inner = `<button class="btn btn-primary" onclick="${handler}(this)">✨ ${btnLabel}</button>
+      <p class="text-tertiary" style="font-size:12px; margin-top:8px;">点击后调用 AI 单独生成，约需 10-30 秒</p>`;
+  }
+  return `<div class="card detail-section">
+    <div class="section-label">${title}</div>
+    <div class="detail-section-body">${inner}</div>
+  </div>`;
+}
+
+async function loadSuggestionDetail() {
+  if (Auth.requireAuth()) return;
+
+  const m = window.location.pathname.match(/\/suggestion\/(\d+)/);
+  const id = m ? m[1] : null;
+  _detailSuggestionId = id;
+
+  setPageTitle('项目建议详情', '');
+  setBody(loadingHTML('正在加载详情…'));
+
+  if (!id) {
+    setBody(errorHTML('无效的建议 ID'));
+    return;
+  }
+
+  try {
+    const s = await getJSON(`/suggestion/${id}`);
+    const keyFeatures = s.key_features || [];
+    const mvpFeatures = s.mvp_features || [];
+    const techStack = s.tech_stack || [];
+    const similarProjects = s.similar_projects || [];
+    const viralHooks = s.viral_hooks || [];
+
+    let html = `<a class="back-link" href="/suggestions?date=${esc(s.date || '')}">← 返回项目建议</a>`;
+
+    html += `<div class="detail-header">
+      <div class="suggestion-head">
+        <div class="suggestion-name" style="font-size:22px;">${esc(s.name)}</div>
+        ${categoryBadge(s.category)}
+      </div>
+      <div class="suggestion-tagline" style="font-size:15px;">${esc(s.tagline || '')}</div>
+      <div class="suggestion-meta">
+        ${s.estimated_stars ? `<span class="meta-item"><span>★</span><span class="meta-value">${esc(s.estimated_stars)}</span></span>` : ''}
+        ${s.timeline ? `<span class="meta-item"><span>⏱</span><span class="meta-value">${esc(s.timeline)}</span></span>` : ''}
+        ${s.difficulty ? `<span class="meta-item ${difficultyClass(s.difficulty)}">${esc(s.difficulty)}</span>` : ''}
+      </div>
+    </div>`;
+
+    if (s.description) {
+      html += `<div class="card detail-section"><div class="section-label">项目描述</div>
+        <p class="detail-text">${esc(s.description)}</p></div>`;
+    }
+
+    if (s.target_audience) {
+      html += `<div class="card detail-section"><div class="section-label">目标用户</div>
+        <p class="detail-text">${esc(s.target_audience)}</p></div>`;
+    }
+
+    if (keyFeatures.length) {
+      html += `<div class="card detail-section"><div class="section-label">核心功能</div>
+        <ul class="key-features">${keyFeatures.map((f) => `<li>${esc(f)}</li>`).join('')}</ul></div>`;
+    }
+
+    if (techStack.length) {
+      html += `<div class="card detail-section"><div class="section-label">技术栈</div>
+        <div style="display:flex; flex-wrap:wrap; gap:6px;">${techStack.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div></div>`;
+    }
+
+    if (mvpFeatures.length) {
+      html += `<div class="card detail-section"><div class="section-label">MVP 功能</div>
+        <ul class="key-features">${mvpFeatures.map((f) => `<li>${esc(f)}</li>`).join('')}</ul></div>`;
+    }
+
+    if (similarProjects.length) {
+      html += `<div class="card detail-section"><div class="section-label">类似项目对比</div>
+        <table class="compare-table"><thead><tr><th>项目</th><th>Star</th><th>我们的优势</th></tr></thead><tbody>`;
+      similarProjects.forEach((p) => {
+        html += `<tr><td>${esc(p.name || '')}</td><td style="color:var(--text-tertiary);">${esc(p.stars || '')}</td><td class="col-advantage">${esc(p.our_advantage || '')}</td></tr>`;
+      });
+      html += `</tbody></table></div>`;
+    }
+
+    if (viralHooks.length) {
+      html += `<div class="card detail-section"><div class="section-label">病毒传播因素</div>
+        <div style="line-height:1.9;">${viralHooks.map((h) => `<span class="badge badge-rising" style="margin:2px;">${esc(h)}</span>`).join(' ')}</div></div>`;
+    }
+
+    // On-demand sections
+    html += genSectionHTML('架构与目录结构', 'architecture', 'repo_structure', s, '生成架构与目录结构', 'genArchitecture');
+    html += genSectionHTML('README 营销策略', 'readme_strategy', 'naming_tips', s, '生成 README 营销策略', 'genReadme');
+
+    setBody(html);
+  } catch (e) {
+    setBody(errorHTML(e.message));
+  }
+}
+
+async function _genSection(btn, endpoint) {
+  if (!_detailSuggestionId) return;
+  const body = btn.closest('.detail-section-body');
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '生成中…';
+  try {
+    const result = await postJSON(`/suggestion/${_detailSuggestionId}/${endpoint}`);
+    let html = '';
+    Object.keys(result).forEach((k) => { html += renderTextBlock(result[k]); });
+    body.innerHTML = html || '<p class="text-tertiary">未生成内容</p>';
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = original;
+    const err = document.createElement('p');
+    err.className = 'error-text';
+    err.style.cssText = 'color:var(--danger,#e5484d); font-size:13px; margin-top:8px;';
+    err.textContent = '生成失败：' + e.message;
+    body.appendChild(err);
+  }
+}
+
+window.genArchitecture = function(btn) { _genSection(btn, 'architecture'); };
+window.genReadme = function(btn) { _genSection(btn, 'readme'); };
 
 /* ============================================================
    8b. Settings Page
@@ -1080,7 +1179,11 @@ async function handleLogin(event) {
     '/login': loadLogin,
   };
 
-  const handler = routes[path];
+  let handler = routes[path];
+  // Dynamic route: /suggestion/{id}
+  if (!handler && /^\/suggestion\/\d+$/.test(path)) {
+    handler = loadSuggestionDetail;
+  }
   if (handler) {
     try {
       await handler();
