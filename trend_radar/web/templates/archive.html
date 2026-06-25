@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TrendRadar — 历史报告</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔭</text></svg>">
 </head>
@@ -11,14 +12,17 @@
   <aside class="sidebar">
     <div class="sidebar-logo">🔭 TrendRadar</div>
     <nav>
-      <a href="/">📊 仪表盘</a>
-      <a href="/trends">📈 趋势详情</a>
-      <a href="/suggestions">🚀 项目建议</a>
-      <a href="/archive" class="active">📚 历史报告</a>
+      <a href="/" class="nav-link" data-page="dashboard">📊 仪表盘</a>
+      <a href="/trends" class="nav-link" data-page="trends">📈 趋势详情</a>
+      <a href="/suggestions" class="nav-link" data-page="suggestions">🚀 项目建议</a>
+      <a href="/archive" class="nav-link active" data-page="archive">📚 历史报告</a>
     </nav>
+    <div class="sidebar-footer">
+      <button class="logout-btn" id="logout-btn">登出</button>
+    </div>
   </aside>
   <main class="main-content">
-    <div id="content"><div class="empty-state"><div class="emoji">⏳</div><p>加载中...</p></div></div>
+    <div id="content"><div class="loading-state"><div class="loading-spinner"></div><p>加载中...</p></div></div>
   </main>
   <script src="/static/js/app.js"></script>
 </body>

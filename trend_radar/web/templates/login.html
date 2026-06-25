@@ -4,11 +4,95 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TrendRadar — 登录</title>
-  <link rel="stylesheet" href="/static/css/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔭</text></svg>">
+  <style>
+    :root {
+      --bg: #08090a; --bg-card: #0f1011; --bg-elevated: #191a1b;
+      --border: rgba(255,255,255,0.08); --border-subtle: rgba(255,255,255,0.05);
+      --text: #f7f8f8; --text-secondary: #d0d6e0; --text-tertiary: #8a8f98; --text-quaternary: #62666d;
+      --brand: #5e6ad2; --accent: #7170ff; --accent-hover: #828fff; --danger: #f85149;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      font-feature-settings: "cv01", "ss03";
+      background: var(--bg); color: var(--text);
+      min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;
+    }
+    .login-card {
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px;
+      padding: 48px 40px; width: 100%; max-width: 420px; text-align: center;
+    }
+    .login-logo { font-size: 40px; margin-bottom: 16px; }
+    .login-title { font-size: 28px; font-weight: 600; letter-spacing: -0.704px; margin-bottom: 8px; }
+    .login-subtitle { color: var(--text-tertiary); font-size: 15px; margin-bottom: 32px; }
+    .form-group { margin-bottom: 20px; text-align: left; }
+    .form-label { display: block; font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-bottom: 8px; }
+    .form-input {
+      width: 100%; background: rgba(255,255,255,0.02); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 14px; color: var(--text);
+      font-family: 'JetBrains Mono', monospace; font-size: 14px;
+      transition: border-color 0.2s; outline: none;
+    }
+    .form-input:focus { border-color: var(--accent); }
+    .form-input::placeholder { color: var(--text-quaternary); }
+    .login-btn {
+      width: 100%; background: var(--brand); color: #fff; border: none; border-radius: 8px;
+      padding: 12px; font-size: 15px; font-weight: 500; cursor: pointer;
+      transition: background 0.2s; font-family: inherit;
+    }
+    .login-btn:hover { background: var(--accent-hover); }
+    .login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .login-error { color: var(--danger); font-size: 14px; margin-top: 16px; display: none; }
+    .login-hint { margin-top: 24px; font-size: 13px; color: var(--text-quaternary); line-height: 1.6; }
+    .login-hint code {
+      font-family: 'JetBrains Mono', monospace;
+      background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px; font-size: 12px;
+    }
+  </style>
 </head>
 <body>
-  <div id="content"><div class="empty-state"><div class="emoji">⏳</div><p>加载中...</p></div></div>
-  <script src="/static/js/app.js"></script>
+  <div class="login-card">
+    <div class="login-logo">🔭</div>
+    <h1 class="login-title">TrendRadar</h1>
+    <p class="login-subtitle">GitHub 趋势 + AI 资讯雷达</p>
+    <form id="login-form" onsubmit="return handleLogin(event)">
+      <div class="form-group">
+        <label class="form-label">Access Token</label>
+        <input type="password" class="form-input" id="token-input" placeholder="输入你的 JWT token" autocomplete="off">
+      </div>
+      <button type="submit" class="login-btn" id="login-btn">登录 →</button>
+      <div class="login-error" id="error-msg"></div>
+    </form>
+    <div class="login-hint">
+      Token 通过以下命令获取:<br>
+      <code>python -m trend_radar.web.auth --generate</code>
+    </div>
+  </div>
+  <script>
+    const existingToken = localStorage.getItem('trendradar_jwt');
+    if (existingToken) { window.location.href = '/'; }
+    function handleLogin(event) {
+      event.preventDefault();
+      const token = document.getElementById('token-input').value.trim();
+      const errorEl = document.getElementById('error-msg');
+      const btn = document.getElementById('login-btn');
+      if (!token) { errorEl.textContent = '请输入 Token'; errorEl.style.display = 'block'; return false; }
+      btn.disabled = true; btn.textContent = '验证中...';
+      fetch('/api/health', { headers: { 'Authorization': 'Bearer ' + token } })
+        .then(resp => {
+          if (resp.ok || resp.status < 500) {
+            localStorage.setItem('trendradar_jwt', token);
+            window.location.href = '/';
+          } else { throw new Error('验证失败'); }
+        })
+        .catch(err => {
+          localStorage.setItem('trendradar_jwt', token);
+          window.location.href = '/';
+        });
+      return false;
+    }
+  </script>
 </body>
 </html>
