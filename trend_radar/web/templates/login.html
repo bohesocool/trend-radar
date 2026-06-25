@@ -32,7 +32,7 @@
     .form-input {
       width: 100%; background: rgba(255,255,255,0.02); border: 1px solid var(--border);
       border-radius: 8px; padding: 12px 14px; color: var(--text);
-      font-family: 'JetBrains Mono', monospace; font-size: 14px;
+      font-family: 'Inter', sans-serif; font-size: 15px;
       transition: border-color 0.2s; outline: none;
     }
     .form-input:focus { border-color: var(--accent); }
@@ -45,11 +45,6 @@
     .login-btn:hover { background: var(--accent-hover); }
     .login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .login-error { color: var(--danger); font-size: 14px; margin-top: 16px; display: none; }
-    .login-hint { margin-top: 24px; font-size: 13px; color: var(--text-quaternary); line-height: 1.6; }
-    .login-hint code {
-      font-family: 'JetBrains Mono', monospace;
-      background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px; font-size: 12px;
-    }
   </style>
 </head>
 <body>
@@ -59,38 +54,49 @@
     <p class="login-subtitle">GitHub 趋势 + AI 资讯雷达</p>
     <form id="login-form" onsubmit="return handleLogin(event)">
       <div class="form-group">
-        <label class="form-label">Access Token</label>
-        <input type="password" class="form-input" id="token-input" placeholder="输入你的 JWT token" autocomplete="off">
+        <label class="form-label">密码</label>
+        <input type="password" class="form-input" id="password-input" placeholder="输入访问密码" autocomplete="off">
       </div>
       <button type="submit" class="login-btn" id="login-btn">登录 →</button>
       <div class="login-error" id="error-msg"></div>
     </form>
-    <div class="login-hint">
-      Token 通过以下命令获取:<br>
-      <code>python -m trend_radar.web.auth --generate</code>
-    </div>
   </div>
   <script>
     const existingToken = localStorage.getItem('trendradar_jwt');
     if (existingToken) { window.location.href = '/'; }
+
     function handleLogin(event) {
       event.preventDefault();
-      const token = document.getElementById('token-input').value.trim();
+      const password = document.getElementById('password-input').value;
       const errorEl = document.getElementById('error-msg');
       const btn = document.getElementById('login-btn');
-      if (!token) { errorEl.textContent = '请输入 Token'; errorEl.style.display = 'block'; return false; }
-      btn.disabled = true; btn.textContent = '验证中...';
-      fetch('/api/health', { headers: { 'Authorization': 'Bearer ' + token } })
-        .then(resp => {
-          if (resp.ok || resp.status < 500) {
-            localStorage.setItem('trendradar_jwt', token);
-            window.location.href = '/';
-          } else { throw new Error('验证失败'); }
-        })
-        .catch(err => {
-          localStorage.setItem('trendradar_jwt', token);
+
+      btn.disabled = true;
+      btn.textContent = '验证中...';
+
+      fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: password })
+      })
+      .then(resp => resp.json().then(data => ({ status: resp.status, data })))
+      .then(({ status, data }) => {
+        if (status === 200 && data.token) {
+          localStorage.setItem('trendradar_jwt', data.token);
           window.location.href = '/';
-        });
+        } else {
+          errorEl.textContent = data.detail || '密码错误';
+          errorEl.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = '登录 →';
+        }
+      })
+      .catch(() => {
+        errorEl.textContent = '网络错误，请重试';
+        errorEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = '登录 →';
+      });
       return false;
     }
   </script>

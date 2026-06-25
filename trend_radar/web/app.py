@@ -1,4 +1,4 @@
-"""TrendRadar Web 应用入口 — FastAPI + JWT 鉴权 + Webhook 触发。"""
+"""TrendRadar Web 应用入口 — FastAPI + 固定密码鉴权 + Webhook 触发。"""
 
 from __future__ import annotations
 
@@ -8,10 +8,11 @@ import uvicorn
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from trend_radar.config import get_config
 from trend_radar.web.api import router
-from trend_radar.web.auth import create_token, require_auth
+from trend_radar.web.auth import login, require_auth
 
 _WEB_DIR = Path(__file__).resolve().parent
 _STATIC_DIR = _WEB_DIR / "static"
@@ -54,18 +55,26 @@ async def archive_page() -> str:
     return (_TEMPLATE_DIR / "archive.html").read_text(encoding="utf-8")
 
 
+# ===== 登录端点 =====
+
+class LoginRequest(BaseModel):
+    password: str
+
+
+@app.post("/api/login", response_class=JSONResponse)
+async def do_login(req: LoginRequest) -> dict:
+    """用固定密码登录，返回 session token。"""
+    token = login(req.password)
+    if token:
+        return {"status": "ok", "token": token}
+    raise HTTPException(status_code=401, detail="密码错误")
+
+
 # ===== Webhook 触发端点 (供 Hermes cron / 外部 HTTP 调用) =====
 
 @app.post("/api/trigger/daily", response_class=JSONResponse)
-async def trigger_daily(user: dict = Depends(require_auth)) -> dict:
-    """手动触发日报流程。
-
-    需要 Bearer token 鉴权。
-    可通过 HTTP POST 请求触发:
-    curl -X POST http://localhost:8088/api/trigger/daily \
-         -H "Authorization: Bearer <token>"
-    """
-    import asyncio
+async def trigger_daily(auth: bool = Depends(require_auth)) -> dict:
+    """手动触发日报流程。需要 Bearer token 鉴权。"""
     from trend_radar.scheduler import run_daily
 
     try:
@@ -81,9 +90,8 @@ async def trigger_daily(user: dict = Depends(require_auth)) -> dict:
 
 
 @app.post("/api/trigger/weekly", response_class=JSONResponse)
-async def trigger_weekly(user: dict = Depends(require_auth)) -> dict:
+async def trigger_weekly(auth: bool = Depends(require_auth)) -> dict:
     """手动触发周报流程。需要 Bearer token 鉴权。"""
-    import asyncio
     from trend_radar.scheduler import run_weekly
 
     try:
@@ -94,7 +102,7 @@ async def trigger_weekly(user: dict = Depends(require_auth)) -> dict:
 
 
 @app.post("/api/trigger/collect", response_class=JSONResponse)
-async def trigger_collect(user: dict = Depends(require_auth)) -> dict:
+async def trigger_collect(auth: bool = Depends(require_auth)) -> dict:
     """仅执行数据采集 (不做分析/生成/推送)。"""
     from trend_radar.scheduler import run_collect_all
 
@@ -107,19 +115,6 @@ async def trigger_collect(user: dict = Depends(require_auth)) -> dict:
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# ===== Token 生成端点 =====
-
-@app.get("/api/token/generate", response_class=JSONResponse)
-async def generate_token() -> dict:
-    """生成一个新的 JWT token (首次设置用)。
-
-    安全提示: 这个端点不需要鉴权，建议在部署后关闭或改为需要管理员密码。
-    生产环境请通过 CLI `python -m trend_radar.web.auth --generate` 获取 token。
-    """
-    token = create_token()
-    return {"token": token, "hint": "请妥善保管此 token, 它用于访问 TrendRadar API。"}
 
 
 def main() -> None:
