@@ -22,7 +22,7 @@ class LLMClient:
         )
         self.model = cfg["model"]
         self.temperature = cfg.get("temperature", 0.7)
-        self.max_tokens = cfg.get("max_tokens", 8000)
+        self.max_tokens = cfg.get("max_tokens", 12000)
 
     def chat(self, system_prompt: str, user_prompt: str, max_retries: int = 2) -> str:
         """调用 chat completions，返回文本响应。失败自动重试。"""
@@ -56,9 +56,15 @@ class LLMClient:
         return ""
 
     def chat_json(self, system_prompt: str, user_prompt: str) -> dict[str, Any] | list[Any]:
-        """调用 LLM 并尝试解析 JSON 响应。"""
+        """调用 LLM 并尝试解析 JSON 响应。失败时记录原始返回到日志。"""
         raw = self.chat(system_prompt, user_prompt)
-        return self._parse_json(raw)
+        try:
+            return self._parse_json(raw)
+        except (ValueError, json.JSONDecodeError) as e:
+            logger.error(f"LLM JSON 解析失败: {e}")
+            logger.error(f"LLM 原始返回 (前2000字符): {raw[:2000]}")
+            logger.error(f"LLM 原始返回长度: {len(raw)}")
+            raise
 
     @staticmethod
     def _parse_json(text: str) -> dict[str, Any] | list[Any]:

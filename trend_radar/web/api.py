@@ -74,9 +74,23 @@ def list_dates() -> list[str]:
 
 
 @router.get("/trends/{date}")
-def get_trends_by_date(date: str) -> list[dict[str, Any]]:
-    """获取指定日期的原始采集数据。"""
-    return db.get_trend_items_by_date(date)
+def get_trends_by_date(date: str, source: str | None = None) -> list[dict[str, Any]]:
+    """获取指定日期的原始采集数据。可选按 source 过滤。"""
+    items = db.get_trend_items_by_date(date)
+    if source:
+        items = [i for i in items if i.get("source") == source]
+    return items
+
+
+@router.get("/trends/{date}/summary")
+def get_trends_summary(date: str) -> dict[str, Any]:
+    """获取指定日期各数据源的条目计数（返回的是保留后的数量）。"""
+    items = db.get_trend_items_by_date(date)
+    counts: dict[str, int] = {}
+    for item in items:
+        src = item.get("source") or "unknown"
+        counts[src] = counts.get(src, 0) + 1
+    return {"date": date, "total": len(items), "sources": counts}
 
 
 @router.get("/scaffold/{date}/{name}/{filename}", response_class=PlainTextResponse)

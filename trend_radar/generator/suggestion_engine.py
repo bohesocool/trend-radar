@@ -30,7 +30,7 @@ GitHub star 增长策略：
 
 必须严格按照 JSON 格式回复。"""
 
-_USER_PROMPT_TEMPLATE = """基于以下 {date} 的趋势分析结果，生成 {n} 个具体的项目建议。
+_USER_PROMPT_TEMPLATE = """基于以下 {date} 的趋势分析结果，生成 1 个具体的项目建议。
 
 【趋势概述】
 {summary}
@@ -41,7 +41,7 @@ _USER_PROMPT_TEMPLATE = """基于以下 {date} 的趋势分析结果，生成 {n
 【新兴机会】
 {opportunities}
 
-请输出 JSON：
+请输出 JSON（只包含 1 个建议）：
 ```json
 {{
   "suggestions": [
@@ -76,16 +76,17 @@ _USER_PROMPT_TEMPLATE = """基于以下 {date} 的趋势分析结果，生成 {n
 ```
 
 要求：
-- 生成 {n} 个建议，覆盖不同 category 和 difficulty
-- 每个 scaffold_files 至少包含 README.md 和主程序文件
+- 只生成 1 个建议
+- scaffold_files 中的代码不要超过 50 行（保持精简骨架，不要写完整实现）
+- scaffold_files 至少包含 README.md 和主程序文件
 - README.md 要写营销型文案，包含安装、使用、对比表格
 - 项目名要检查不会与知名项目重名
-- 优先选择 trending=rising 的主题
-- scaffold_files 中的代码要可以直接运行 (不能是伪代码)"""
+- scaffold_files 中的代码要可以直接运行 (不能是伪代码)
+- {index_hint}"""
 
 
 def generate_suggestions(analysis: TrendAnalysis, n: int = 5) -> list[ProjectSuggestion]:
-    """基于趋势分析生成项目建议。"""
+    """基于趋势分析生成项目建议。每次只生成 1 个，循环调用 N 次以提高成功率。"""
     if not analysis.hot_topics and not analysis.emerging_opportunities:
         logger.warning("无趋势数据，跳过建议生成")
         return []
@@ -99,23 +100,75 @@ def generate_suggestions(analysis: TrendAnalysis, n: int = 5) -> list[ProjectSug
         for opp in analysis.emerging_opportunities
     )
 
-    user_prompt = _USER_PROMPT_TEMPLATE.format(
-        date=analysis.date,
-        n=n,
-        summary=analysis.daily_summary,
-        hot_topics=hot_topics_text,
-        opportunities=opportunities_text,
-    )
-
     llm = LLMClient()
-    logger.info(f"调用 LLM 生成 {n} 个项目建议...")
-    result = llm.chat_json(_SYSTEM_PROMPT, user_prompt)
-
     suggestions: list[ProjectSuggestion] = []
-    for s in result.get("suggestions", []):
-        suggestions.append(_parse_suggestion(s))
+    used_names: set[str] = set()
+    used_categories: set[str] = set()
 
-    logger.info(f"生成 {len(suggestions)} 个项目建议")
+    for i in range(n):
+        # Build index hint to encourage variety
+        index_hint = f"这是第 {i+1}/{n} 个建议，请选择不同的方向"
+        if used_names:
+            index_hint += f"，避免与已生成的项目重复: {', '.join(list(used_names)[:5])}"
+        if used_categories:
+            index_hint += f"，尝试不同于已使用的分类: {', '.join(used_categories)}"
+        if i > 0:
+            index_hint += "，优先选择 trending=rising 的主题"
+
+        user_prompt = _USER_PROMPT_TEMPLATE.format(
+            date=analysis.date,
+            summary=analysis.daily_summary,
+            hot_topics=hot_topics_text,
+            opportunities=opportunities_text,
+            index_hint=index_hint,
+        )
+
+        logger.info(f"调用 LLM 生成第 {i+1}/{n} 个项目建议...")
+        try:
+            result = llm.chat_json(_SYSTEM_PROMPT, user_prompt)
+            s_list = result.get("suggestions", [])
+            if not s_list:
+                logger.warning(f"第 {i+1} 个建议: LLM 返回空 suggestions 列表")
+                continue
+            s_data = s_list[0]
+            suggestion = _parse_suggestion(s_data)
+            if suggestion.name in used_names:
+                logger.warning(f"第 {i+1} 个建议: 项目名 '{suggestion.name}' 已存在，跳过")
+                continue
+            used_names.add(suggestion.name)
+            used_categories.add(suggestion.category)
+            suggestions.append(suggestion)
+            logger.info(f"第 {i+1} 个建议生成成功: {suggestion.name}")
+        except Exception as e:
+            logger.error(f"第 {i+1} 个建议生成失败: {e}")
+            continue
+
+    # 如果全部失败，至少重试 3 次确保出 1 个
+    if not suggestions:
+        logger.warning("所有建议生成失败，启动兜底重试...")
+        for retry_i in range(3):
+            logger.info(f"兜底重试第 {retry_i+1}/3 次...")
+            try:
+                retry_hint = "这是最后一次机会，请务必生成一个高质量的项目建议"
+                retry_prompt = _USER_PROMPT_TEMPLATE.format(
+                    date=analysis.date,
+                    summary=analysis.daily_summary,
+                    hot_topics=hot_topics_text,
+                    opportunities=opportunities_text,
+                    index_hint=retry_hint,
+                )
+                result = llm.chat_json(_SYSTEM_PROMPT, retry_prompt)
+                s_list = result.get("suggestions", [])
+                if s_list:
+                    suggestion = _parse_suggestion(s_list[0])
+                    suggestions.append(suggestion)
+                    logger.info(f"兜底重试成功: {suggestion.name}")
+                    break
+            except Exception as e:
+                logger.error(f"兜底重试第 {retry_i+1} 次失败: {e}")
+                continue
+
+    logger.info(f"共生成 {len(suggestions)}/{n} 个项目建议")
     return suggestions
 
 

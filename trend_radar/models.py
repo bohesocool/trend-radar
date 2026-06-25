@@ -30,7 +30,10 @@ class HotTopic:
     heat_score: float  # 1-100
     trend: str  # rising / peak / sustained / cooling
     description: str
+    detailed_analysis: str = ""
     evidence: list[str] = field(default_factory=list)
+    key_insights: list[str] = field(default_factory=list)
+    recommendations: list[str] = field(default_factory=list)
     languages: list[str] = field(default_factory=list)
 
 

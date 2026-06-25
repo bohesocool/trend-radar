@@ -4,11 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TrendRadar — 历史报告</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔭</text></svg>">
 </head>
 <body>
+  <script>
+    (function() {
+      var t = localStorage.getItem('trendradar_theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
   <aside class="sidebar">
     <div class="sidebar-logo">🔭 TrendRadar</div>
     <nav>
@@ -16,9 +21,11 @@
       <a href="/trends" class="nav-link" data-page="trends">📈 趋势详情</a>
       <a href="/suggestions" class="nav-link" data-page="suggestions">🚀 项目建议</a>
       <a href="/archive" class="nav-link active" data-page="archive">📚 历史报告</a>
+      <a href="/settings" class="nav-link" data-page="settings">⚙️ 设置</a>
     </nav>
     <div class="sidebar-footer">
-      <button class="logout-btn" id="logout-btn">登出</button>
+      <button class="theme-toggle" id="theme-toggle" title="切换主题">🌙</button>
+      <button class="logout-btn" id="logout-btn" style="margin-top:8px;">登出</button>
     </div>
   </aside>
   <main class="main-content">

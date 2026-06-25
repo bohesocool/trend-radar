@@ -24,8 +24,18 @@ def render_daily_report_markdown(report: DailyReport) -> str:
         lines.append(f"### {trend_emoji} {i}. {ht.topic}")
         lines.append(f"- **热度**: {ht.heat_score}/100 ({ht.trend})")
         lines.append(f"- **描述**: {ht.description}")
+        if ht.detailed_analysis:
+            lines.append(f"- **深度分析**: {ht.detailed_analysis}")
         if ht.evidence:
             lines.append(f"- **证据**: {' / '.join(ht.evidence)}")
+        if ht.key_insights:
+            lines.append(f"- **关键洞察**:")
+            for insight in ht.key_insights:
+                lines.append(f"  - {insight}")
+        if ht.recommendations:
+            lines.append(f"- **建议**:")
+            for rec in ht.recommendations:
+                lines.append(f"  - {rec}")
         if ht.languages:
             lines.append(f"- **语言**: {', '.join(ht.languages)}")
         lines.append("")

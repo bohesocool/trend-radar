@@ -50,6 +50,20 @@ const Auth = {
    to window in modern browsers). */
 window.Auth = Auth;
 window.handleLogin = handleLogin;
+window.handleRunDaily = handleRunDaily;
+
+/* Topic detail toggle (used by dashboard hot-topic expandable cards) */
+window.toggleTopicDetail = function(id, btn) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  if (el.style.display === 'none') {
+    el.style.display = 'block';
+    if (btn) btn.textContent = '收起 ▴';
+  } else {
+    el.style.display = 'none';
+    if (btn) btn.textContent = '展开详情 ▾';
+  }
+};
 
 /* ============================================================
    2. HTTP Wrapper
@@ -239,9 +253,13 @@ async function loadDashboard() {
       <div class="page-subtitle">今日趋势概览与项目推荐</div>
     </div>
     <div class="page-header-actions">
+      <div class="run-btn-wrapper">
+        <button class="btn btn-primary btn-sm" id="run-daily-btn" onclick="handleRunDaily(event)">▶ 立即运行日报</button>
+        <div class="run-progress" id="run-progress"><span class="spinner"></span><span class="run-phase">采集中...</span></div>
+      </div>
       <button class="btn btn-ghost btn-sm" onclick="Auth.logout()">登出</button>
     </div>
-  </div><div class="page-enter" id="page-body">${loadingHTML('正在加载最新报告…')}</div>`;
+  </div><div class="page-enter" id="page-body"><div id="run-result" class="run-result" style="display:none;"></div>${loadingHTML('正在加载最新报告…')}</div>`;
 
   try {
     const [report, stats] = await Promise.all([
@@ -308,8 +326,13 @@ async function loadDashboard() {
 
     if (hotTopics.length) {
       html += `<div class="topic-list">`;
-      hotTopics.forEach((t) => {
+      hotTopics.forEach((t, idx) => {
         const evidence = t.evidence || [];
+        const keyInsights = t.key_insights || [];
+        const recommendations = t.recommendations || [];
+        const detailedAnalysis = t.detailed_analysis || '';
+        const languages = t.languages || [];
+        const cardId = `topic-detail-${idx}`;
         html += `
           <div class="topic-card">
             <div class="topic-head">
@@ -322,8 +345,16 @@ async function loadDashboard() {
             </div>
             <div class="topic-meta">
               <span>热度 <span style="color:var(--text-secondary); font-weight:500;">${t.heat_score || 0}</span>/100</span>
+              ${languages.length ? `<span class="topic-langs">${languages.map((l) => `<span class="badge badge-tool" style="margin-left:4px;">${esc(l)}</span>`).join('')}</span>` : ''}
             </div>
             ${evidence.length ? `<div class="topic-evidence"><span class="evidence-label">证据:</span>${evidence.map((e) => esc(e)).join(' · ')}</div>` : ''}
+            ${(detailedAnalysis || keyInsights.length || recommendations.length) ? `
+              <button class="btn btn-ghost btn-sm topic-expand-btn" onclick="toggleTopicDetail('${cardId}', this)">展开详情 ▾</button>
+              <div class="topic-detail" id="${cardId}" style="display:none;">
+                ${detailedAnalysis ? `<div class="topic-detail-section"><div class="topic-detail-label">📊 深度分析</div><div class="topic-detail-text">${esc(detailedAnalysis)}</div></div>` : ''}
+                ${keyInsights.length ? `<div class="topic-detail-section"><div class="topic-detail-label">💡 关键洞察</div><ul class="topic-detail-list">${keyInsights.map((i) => `<li>${esc(i)}</li>`).join('')}</ul></div>` : ''}
+                ${recommendations.length ? `<div class="topic-detail-section"><div class="topic-detail-label">🎯 建议</div><ul class="topic-detail-list">${recommendations.map((r) => `<li>${esc(r)}</li>`).join('')}</ul></div>` : ''}
+              </div>` : ''}
           </div>`;
       });
       html += `</div>`;
@@ -457,6 +488,13 @@ async function renderTrendChart(stats, dates) {
    ============================================================ */
 
 async function loadTrends() {
+  /* Check if server-side rendered data is already present */
+  if (document.getElementById('trends-data')) {
+    /* Server-side rendering — data embedded by backend.
+       Auth check only — don't re-render. */
+    if (Auth.requireAuth()) return;
+    return;
+  }
   if (Auth.requireAuth()) return;
 
   setPageTitle('趋势详情', '按数据源分组的原始采集数据');
@@ -473,13 +511,9 @@ async function loadTrends() {
     let selectedDate = params.get('date') || dates[0];
     if (!dates.includes(selectedDate)) selectedDate = dates[0];
 
-    const trends = await getJSON(`/trends/${selectedDate}`);
-
-    const bySource = {};
-    trends.forEach((t) => {
-      const src = t.source || 'unknown';
-      (bySource[src] = bySource[src] || []).push(t);
-    });
+    /* Fetch only summary (counts per source) — tiny payload */
+    const summary = await getJSON(`/trends/${selectedDate}/summary`);
+    const sourceCounts = summary.sources || {};
 
     const sourceLabels = {
       github: 'GitHub',
@@ -489,79 +523,148 @@ async function loadTrends() {
       arxiv: 'arXiv',
     };
 
+    /* Build sorted source list: known sources first (in defined order), then unknowns */
+    const knownOrder = ['github', 'hackernews', 'reddit', 'twitter', 'arxiv'];
+    const sources = knownOrder.filter((s) => sourceCounts[s]);
+    for (const s of Object.keys(sourceCounts)) {
+      if (!knownOrder.includes(s)) sources.push(s);
+    }
+
     let dateSelector = `<div class="date-selector"><label>日期</label><select onchange="window.location.href='/trends?date='+this.value">`;
     dates.forEach((d) => {
       dateSelector += `<option value="${esc(d)}" ${d === selectedDate ? 'selected' : ''}>${esc(d)}</option>`;
     });
     dateSelector += `</select></div>`;
 
+    if (!sources.length) {
+      setBody(dateSelector + emptyHTML('📭', '该日期无数据', `日期 ${esc(selectedDate)} 没有采集到任何趋势数据。`));
+      return;
+    }
+
+    /* Build tabs */
     let html = dateSelector;
+    html += `<div class="source-tabs">`;
+    sources.forEach((src, idx) => {
+      const label = sourceLabels[src] || esc(src);
+      const count = sourceCounts[src];
+      html += `<button class="source-tab ${idx === 0 ? 'active' : ''}" data-source="${esc(src)}" onclick="switchTrendTab('${esc(src)}')">${esc(label)} <span class="tab-count">${count}</span></button>`;
+    });
+    html += `</div>`;
 
-    let totalShown = 0;
-    for (const [source, label] of Object.entries(sourceLabels)) {
-      const items = bySource[source] || [];
-      if (!items.length) continue;
-
-      html += `<div class="source-group">
-        <div class="source-header">
-          <div class="source-title">${esc(label)}</div>
-          <span class="source-count">${items.length}</span>
-        </div>
-        <div class="trend-grid">`;
-
-      items.slice(0, 12).forEach((t) => {
-        const tags = parseJSONField(t.tags, []);
-        html += `
-          <div class="trend-card">
-            <div class="trend-title">
-              <a href="${esc(t.url || '#')}" target="_blank" rel="noopener">${esc(t.title || '')}</a>
-            </div>
-            ${t.description ? `<div class="trend-desc">${esc(t.description)}</div>` : ''}
-            <div class="trend-meta">
-              ${t.language ? `<span class="badge badge-tool">${esc(t.language)}</span>` : ''}
-              ${t.popularity ? `<span class="trend-popularity">★ ${esc(t.popularity)}</span>` : ''}
-              ${tags.map((tag) => `<span class="badge badge-sustained">${esc(tag)}</span>`).join('')}
-            </div>
-          </div>`;
-        totalShown++;
-      });
-
+    /* Build empty tab panels — content loaded on demand */
+    sources.forEach((src, idx) => {
+      const label = sourceLabels[src] || esc(src);
+      const isActive = idx === 0;
+      html += `<div class="tab-panel ${isActive ? 'active' : ''}" id="tab-${esc(src)}">`;
+      html += `<div class="source-group"><div class="source-header"><div class="source-title">${esc(label)} <span class="source-count">${sourceCounts[src]}</span></div></div>`;
+      html += `<div id="content-${esc(src)}">${loadingHTML('点击加载 ' + esc(label) + ' 数据…')}</div>`;
       html += `</div></div>`;
-    }
-
-    /* Unknown sources */
-    for (const [source, items] of Object.entries(bySource)) {
-      if (sourceLabels[source]) continue;
-      html += `<div class="source-group">
-        <div class="source-header">
-          <div class="source-title">${esc(source)}</div>
-          <span class="source-count">${items.length}</span>
-        </div>
-        <div class="trend-grid">`;
-      items.slice(0, 12).forEach((t) => {
-        const tags = parseJSONField(t.tags, []);
-        html += `
-          <div class="trend-card">
-            <div class="trend-title"><a href="${esc(t.url || '#')}" target="_blank" rel="noopener">${esc(t.title || '')}</a></div>
-            ${t.description ? `<div class="trend-desc">${esc(t.description)}</div>` : ''}
-            <div class="trend-meta">
-              ${t.popularity ? `<span class="trend-popularity">★ ${esc(t.popularity)}</span>` : ''}
-              ${tags.map((tag) => `<span class="badge badge-sustained">${esc(tag)}</span>`).join('')}
-            </div>
-          </div>`;
-      });
-      html += `</div></div>`;
-    }
-
-    if (totalShown === 0) {
-      html += emptyHTML('📭', '该日期无数据', `日期 ${esc(selectedDate)} 没有采集到任何趋势数据。`);
-    }
+    });
 
     setBody(html);
+
+    /* Lazily load the first tab */
+    window._trendsDate = selectedDate;
+    window._trendsLoaded = {};
+    loadTrendSource(sources[0], sourceCounts[sources[0]]);
   } catch (e) {
     setBody(errorHTML(e.message));
   }
 }
+
+async function loadTrendSource(source, expectedCount) {
+  if (window._trendsLoaded[source]) return;
+  window._trendsLoaded[source] = true;
+
+  const container = document.getElementById(`content-${source}`);
+  if (!container) return;
+  container.innerHTML = loadingHTML('正在加载 ' + source + ' 数据…');
+
+  const ITEMS_PER_PAGE = 30;
+
+  try {
+    const items = await getJSON(`/trends/${window._trendsDate}?source=${encodeURIComponent(source)}`);
+
+    if (!items.length) {
+      container.innerHTML = '<p class="text-tertiary" style="font-size:13px;">无数据</p>';
+      return;
+    }
+
+    let html = `<div class="trend-grid" id="grid-${source}">`;
+    html += items.slice(0, ITEMS_PER_PAGE).map((t) => renderTrendCard(t)).join('');
+    html += `</div>`;
+
+    const hasMore = items.length > ITEMS_PER_PAGE;
+    if (hasMore) {
+      html += `<div class="load-more-wrapper"><button class="btn btn-ghost btn-sm" onclick="loadMoreTrends('${source}', ${ITEMS_PER_PAGE})">加载更多 (${items.length - ITEMS_PER_PAGE} 条剩余)</button></div>`;
+    }
+
+    container.innerHTML = html;
+    window._trendData = window._trendData || {};
+    window._trendData[source] = items;
+    window._trendPageCount = window._trendPageCount || {};
+    window._trendPageCount[source] = 1;
+  } catch (e) {
+    container.innerHTML = errorHTML(e.message);
+    window._trendsLoaded[source] = false;
+  }
+}
+
+function renderTrendCard(t) {
+  const tags = parseJSONField(t.tags, []);
+  return `
+    <div class="trend-card">
+      <div class="trend-title">
+        <a href="${esc(t.url || '#')}" target="_blank" rel="noopener">${esc(t.title || '')}</a>
+      </div>
+      ${t.description ? `<div class="trend-desc">${esc(t.description)}</div>` : ''}
+      <div class="trend-meta">
+        ${t.language ? `<span class="badge badge-tool">${esc(t.language)}</span>` : ''}
+        ${t.popularity ? `<span class="trend-popularity">★ ${esc(t.popularity)}</span>` : ''}
+        ${tags.map((tag) => `<span class="badge badge-sustained">${esc(tag)}</span>`).join('')}
+      </div>
+    </div>`;
+}
+
+function switchTrendTab(source) {
+  document.querySelectorAll('.source-tab').forEach((t) => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
+  const tab = document.querySelector(`.source-tab[data-source="${source}"]`);
+  const panel = document.getElementById(`tab-${source}`);
+  if (tab) tab.classList.add('active');
+  if (panel) panel.classList.add('active');
+
+  /* Lazy load this tab's data if not yet loaded */
+  if (!window._trendsLoaded[source]) {
+    const countEl = panel?.querySelector('.source-count');
+    const count = countEl ? parseInt(countEl.textContent) : 0;
+    loadTrendSource(source, count);
+  }
+}
+
+function loadMoreTrends(source, perPage) {
+  const data = window._trendData;
+  if (!data || !data[source]) return;
+  const page = (window._trendPageCount[source] || 1) + 1;
+  const start = (page - 1) * perPage;
+  const newItems = data[source].slice(start, start + perPage);
+  const grid = document.getElementById(`grid-${source}`);
+  if (grid) {
+    grid.insertAdjacentHTML('beforeend', newItems.map((t) => renderTrendCard(t)).join(''));
+  }
+  window._trendPageCount[source] = page;
+  const remaining = data[source].length - (start + perPage);
+  const wrapper = grid?.parentElement?.querySelector('.load-more-wrapper');
+  if (remaining <= 0 && wrapper) {
+    wrapper.remove();
+  } else if (wrapper) {
+    wrapper.querySelector('button').textContent = `加载更多 (${remaining} 条剩余)`;
+  }
+}
+
+window.switchTrendTab = switchTrendTab;
+window.loadMoreTrends = loadMoreTrends;
+window.loadTrendSource = loadTrendSource;
 
 /* ============================================================
    7. Suggestions Page
@@ -702,6 +805,145 @@ async function loadSuggestions() {
    8. Archive Page
    ============================================================ */
 
+/* ============================================================
+   8b. Settings Page
+   ============================================================ */
+
+async function loadSettings() {
+  if (Auth.requireAuth()) return;
+
+  setPageTitle('设置', '管理 AI 配置和采集参数');
+  setBody(loadingHTML('正在加载配置…'));
+
+  try {
+    const settings = await getJSON('/settings');
+    const ai = settings.ai || {};
+    const collect = settings.collect || {};
+
+    const githubLangs = (collect.github_languages || ['python']).join(', ');
+    const arxivCats = (collect.arxiv_categories || ['cs.AI', 'cs.CL', 'cs.LG']).join(', ');
+    const redditSubs = (collect.reddit_subreddits || []).join(', ');
+
+    let html = `
+      <div class="settings-section">
+        <div class="settings-section-title">AI 配置</div>
+        <div class="settings-section-desc">LLM API 地址、密钥和模型名称。修改后需重启容器生效。</div>
+        <div class="settings-form">
+          <div class="form-field">
+            <label>API Base URL</label>
+            <input type="text" id="setting-api-base" value="${esc(ai.api_base || '')}" placeholder="https://x666.me">
+            <div class="form-hint">不含 /v1 后缀，系统会自动补全</div>
+          </div>
+          <div class="form-field">
+            <label>API Key</label>
+            <input type="password" id="setting-api-key" value="${esc(ai.api_key || '')}" placeholder="sk-...">
+            <div class="form-hint">密码框，不会回显。留空表示不修改</div>
+          </div>
+          <div class="form-field">
+            <label>模型名称</label>
+            <input type="text" id="setting-model" value="${esc(ai.model || '')}" placeholder="glm-5.2">
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">采集配置</div>
+        <div class="settings-section-desc">数据采集器参数，修改后需重启容器生效。</div>
+        <div class="settings-form">
+          <div class="form-field">
+            <label>日报建议数量</label>
+            <input type="number" id="setting-daily-suggestions" value="${collect.daily_suggestions || 3}" min="1" max="10">
+          </div>
+          <div class="form-field">
+            <label>GitHub 采集语言</label>
+            <input type="text" id="setting-github-langs" value="${esc(githubLangs)}" placeholder="python, javascript, go">
+            <div class="form-hint">逗号分隔</div>
+          </div>
+          <div class="form-field">
+            <label>HN 最低热度分</label>
+            <input type="number" id="setting-hn-min-points" value="${collect.hn_min_points || 100}" min="0">
+          </div>
+          <div class="form-field">
+            <label>arXiv 分类</label>
+            <input type="text" id="setting-arxiv-cats" value="${esc(arxivCats)}" placeholder="cs.AI, cs.CL, cs.LG">
+            <div class="form-hint">逗号分隔</div>
+          </div>
+          <div class="form-field">
+            <label>Reddit 子版列表</label>
+            <input type="text" id="setting-reddit-subs" value="${esc(redditSubs)}" placeholder="MachineLearning, artificial, LocalLLaMA">
+            <div class="form-hint">逗号分隔</div>
+          </div>
+          <div class="form-field">
+            <label>Twitter 采集开关</label>
+            <div style="display:flex; align-items:center; gap:12px;">
+              <label class="toggle-switch">
+                <input type="checkbox" id="setting-twitter-enabled" ${collect.twitter_enabled ? 'checked' : ''}>
+                <span class="toggle-slider"></span>
+              </label>
+              <span style="font-size:13px; color:var(--text-tertiary);">开启后从 RSSHub 采集 Twitter AI 资讯</span>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" onclick="saveSettings()">保存配置</button>
+            <span class="settings-save-msg" id="settings-msg"></span>
+          </div>
+        </div>
+      </div>`;
+
+    setBody(html);
+  } catch (e) {
+    setBody(errorHTML(e.message));
+  }
+}
+
+async function saveSettings() {
+  const msg = document.getElementById('settings-msg');
+  if (!msg) return;
+  msg.className = 'settings-save-msg';
+  msg.textContent = '保存中...';
+
+  const apiBase = document.getElementById('setting-api-base')?.value?.trim() || '';
+  const apiKey = document.getElementById('setting-api-key')?.value?.trim() || '';
+  const model = document.getElementById('setting-model')?.value?.trim() || '';
+  const dailySuggestions = parseInt(document.getElementById('setting-daily-suggestions')?.value || '3');
+  const githubLangs = document.getElementById('setting-github-langs')?.value?.split(',').map((s) => s.trim()).filter(Boolean) || ['python'];
+  const hnMinPoints = parseInt(document.getElementById('setting-hn-min-points')?.value || '100');
+  const arxivCats = document.getElementById('setting-arxiv-cats')?.value?.split(',').map((s) => s.trim()).filter(Boolean) || ['cs.AI', 'cs.CL', 'cs.LG'];
+  const redditSubs = document.getElementById('setting-reddit-subs')?.value?.split(',').map((s) => s.trim()).filter(Boolean) || [];
+  const twitterEnabled = document.getElementById('setting-twitter-enabled')?.checked || false;
+
+  const payload = {
+    ai: { api_base: apiBase, api_key: apiKey, model: model },
+    collect: {
+      daily_suggestions: dailySuggestions,
+      github_languages: githubLangs,
+      hn_min_points: hnMinPoints,
+      arxiv_categories: arxivCats,
+      reddit_subreddits: redditSubs,
+      twitter_enabled: twitterEnabled,
+    },
+  };
+
+  try {
+    const result = await fetchWithAuth(`${API}/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    msg.className = 'settings-save-msg success';
+    msg.textContent = '✅ ' + (result.message || '配置已保存');
+  } catch (e) {
+    msg.className = 'settings-save-msg error';
+    msg.textContent = '❌ 保存失败: ' + e.message;
+  }
+}
+
+window.saveSettings = saveSettings;
+
+/* ============================================================
+   8c. Archive Page (actual)
+   ============================================================ */
+
 async function loadArchive() {
   if (Auth.requireAuth()) return;
 
@@ -768,24 +1010,24 @@ function loadLogin() {
       <div class="login-card">
         <div class="login-logo">🔭</div>
         <h1>TrendRadar</h1>
-        <div class="login-subtitle">输入 JWT Token 以登录</div>
+        <div class="login-subtitle">GitHub 趋势 + AI 资讯雷达</div>
         <form class="login-form" id="login-form" onsubmit="handleLogin(event)">
           <div class="form-field">
-            <label for="jwt-input">JWT Token</label>
+            <label for="password-input">密码</label>
             <input
               type="password"
-              id="jwt-input"
-              placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+              id="password-input"
+              placeholder="输入访问密码"
               autocomplete="off"
               required
             />
           </div>
           <div class="login-error" id="login-error"></div>
-          <button type="submit" class="btn btn-primary login-btn">登录</button>
+          <button type="submit" class="btn btn-primary login-btn">登录 →</button>
         </form>
         <div class="login-hint">
-          Token 存储于浏览器 localStorage，仅在本地使用。<br/>
-          登出后将清除本地凭证。
+          密码存储于服务端 .env，登录后获取 session token。<br/>
+          Token 存储于浏览器 localStorage，仅在本地使用。
         </div>
       </div>
     </div>`;
@@ -793,33 +1035,33 @@ function loadLogin() {
 
 async function handleLogin(event) {
   event.preventDefault();
-  const input = document.getElementById('jwt-input');
+  const input = document.getElementById('password-input');
   const errorEl = document.getElementById('login-error');
-  const token = input.value.trim();
-
-  errorEl.textContent = '';
-
-  if (!token) {
-    errorEl.textContent = '请输入 JWT Token';
+  if (!input) return;
+  const password = input.value;
+  if (!password) {
+    if (errorEl) errorEl.textContent = '请输入密码';
     return;
   }
 
-  /* Quick validation against /health (or any endpoint) to verify token */
+  if (errorEl) errorEl.textContent = '';
+
   try {
-    const resp = await fetch(`${API}/health`, {
-      headers: { 'Authorization': `Bearer ${token}` },
+    const resp = await fetch(`${API}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
     });
-    /* /health may not require auth, but a 401 here means bad token */
-    if (resp.status === 401) {
-      errorEl.textContent = 'Token 无效或已过期';
-      return;
+    const data = await resp.json();
+    if (resp.status === 200 && data.token) {
+      Auth.setToken(data.token);
+      window.location.href = '/';
+    } else {
+      if (errorEl) errorEl.textContent = data.detail || '密码错误';
     }
   } catch (e) {
-    /* Network error — still store token and try; user can retry later */
+    if (errorEl) errorEl.textContent = '网络错误，请重试';
   }
-
-  Auth.setToken(token);
-  window.location.href = '/';
 }
 
 /* ============================================================
@@ -829,30 +1071,12 @@ async function handleLogin(event) {
 (async function init() {
   const path = window.location.pathname.replace(/\/+$/, '') || '/';
 
-  /* Add Google Fonts (Inter + JetBrains Mono) if not already present */
-  if (!document.querySelector('link[href*="fonts.googleapis.com/css2?family=Inter"]')) {
-    const preconnect1 = document.createElement('link');
-    preconnect1.rel = 'preconnect';
-    preconnect1.href = 'https://fonts.googleapis.com';
-    document.head.appendChild(preconnect1);
-
-    const preconnect2 = document.createElement('link');
-    preconnect2.rel = 'preconnect';
-    preconnect2.href = 'https://fonts.gstatic.com';
-    preconnect2.crossOrigin = '';
-    document.head.appendChild(preconnect2);
-
-    const fontLink = document.createElement('link');
-    fontLink.rel = 'stylesheet';
-    fontLink.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap';
-    document.head.appendChild(fontLink);
-  }
-
   const routes = {
     '/': loadDashboard,
     '/trends': loadTrends,
     '/suggestions': loadSuggestions,
     '/archive': loadArchive,
+    '/settings': loadSettings,
     '/login': loadLogin,
   };
 
@@ -861,11 +1085,103 @@ async function handleLogin(event) {
     try {
       await handler();
     } catch (e) {
-      console.error('Page init error:', e);
+      console.error('[TrendRadar] Page init error:', e);
       const content = document.getElementById('content');
       if (content) {
         content.innerHTML = errorHTML(e.message);
       }
     }
   }
+
+  /* Bind theme toggle + logout button (present on all authenticated pages) */
+  initThemeToggle();
+  initLogoutButtons();
 })();
+
+/* ============================================================
+   11. Theme Toggle
+   ============================================================ */
+
+function initThemeToggle() {
+  const btn = document.getElementById('theme-toggle');
+  if (!btn) return;
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  btn.textContent = current === 'dark' ? '☀️' : '🌙';
+  btn.addEventListener('click', () => {
+    const cur = document.documentElement.getAttribute('data-theme') || 'dark';
+    const next = cur === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('trendradar_theme', next);
+    btn.textContent = next === 'dark' ? '☀️' : '🌙';
+  });
+}
+
+function initLogoutButtons() {
+  document.querySelectorAll('.logout-btn, #logout-btn').forEach((btn) => {
+    if (btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', () => Auth.logout());
+  });
+}
+
+/* ============================================================
+   12. Trigger Daily (Run Now button)
+   ============================================================ */
+
+function handleRunDaily(event) {
+  if (event) event.preventDefault();
+  const btn = document.getElementById('run-daily-btn');
+  const progressEl = document.getElementById('run-progress');
+  const resultEl = document.getElementById('run-result');
+  if (!btn || !progressEl || !resultEl) return;
+  triggerDaily(progressEl, resultEl, btn);
+}
+
+async function triggerDaily(progressEl, resultEl, btn) {
+  btn.disabled = true;
+  btn.textContent = '运行中...';
+  progressEl.classList.add('active');
+  resultEl.className = 'run-result';
+  resultEl.style.display = 'none';
+
+  const phases = ['采集中...', '分析中...', '生成建议中...', '完成'];
+  let phaseIdx = 0;
+  progressEl.querySelector('.run-phase').textContent = phases[0];
+  const phaseTimer = setInterval(() => {
+    phaseIdx = Math.min(phaseIdx + 1, phases.length - 2);
+    progressEl.querySelector('.run-phase').textContent = phases[phaseIdx];
+  }, 8000);
+
+  try {
+    const result = await fetchWithAuth(`${API}/trigger/daily`, { method: 'POST' });
+    clearInterval(phaseTimer);
+    progressEl.classList.remove('active');
+    progressEl.querySelector('.run-phase').textContent = '';
+
+    if (result.status === 'ok') {
+      resultEl.className = 'run-result success';
+      resultEl.style.display = 'block';
+      resultEl.innerHTML = `✅ 日报生成成功！日期: <strong>${esc(result.date)}</strong> · 热点: ${result.hot_topics} · 建议: ${result.suggestions}`;
+      btn.textContent = '✓ 完成';
+      btn.className = 'btn btn-ghost btn-sm';
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = '▶ 立即运行日报';
+        btn.className = 'btn btn-primary btn-sm';
+      }, 3000);
+      /* Reload dashboard data to show fresh results */
+      setTimeout(() => loadDashboard(), 1500);
+    } else {
+      throw new Error(result.detail || '未知错误');
+    }
+  } catch (e) {
+    clearInterval(phaseTimer);
+    progressEl.classList.remove('active');
+    progressEl.querySelector('.run-phase').textContent = '';
+    resultEl.className = 'run-result error';
+    resultEl.style.display = 'block';
+    resultEl.textContent = `❌ 运行失败: ${e.message}`;
+    btn.disabled = false;
+    btn.textContent = '▶ 立即运行日报';
+  }
+}

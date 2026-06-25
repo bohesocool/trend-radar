@@ -54,14 +54,43 @@
   --content-padding: 32px;
 
   /* Typography */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
 
   /* Motion */
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
   --duration-fast: 120ms;
   --duration: 180ms;
   --duration-slow: 320ms;
+}
+
+/* ---------- Light Theme ---------- */
+[data-theme="light"] {
+  --bg-marketing: #f7f8f8;
+  --bg-panel: #ffffff;
+  --bg-elevated: #f3f4f5;
+  --bg-hover: #e6e6e6;
+
+  --text-primary: #171717;
+  --text-secondary: #5d5d5d;
+  --text-tertiary: #8a8f98;
+  --text-quaternary: #b4b8bf;
+
+  --brand-indigo: #5e6ad2;
+  --accent-violet: #7170ff;
+  --brand-hover: #4c5bce;
+
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  --border-default: #e6e6e6;
+  --border-strong: #d0d6e0;
+
+  --btn-bg: rgba(0, 0, 0, 0.02);
+  --btn-bg-hover: rgba(0, 0, 0, 0.05);
+  --btn-bg-elevated: rgba(0, 0, 0, 0.04);
+
+  --surface-1: rgba(0, 0, 0, 0.015);
+  --surface-2: rgba(0, 0, 0, 0.03);
+  --surface-3: rgba(0, 0, 0, 0.04);
 }
 
 *,
@@ -566,6 +595,69 @@ p {
 .topic-card .topic-evidence .evidence-label {
   color: var(--text-tertiary);
   margin-right: 6px;
+}
+
+/* Topic expandable detail */
+.topic-expand-btn {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.topic-detail {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-default);
+}
+
+.topic-detail-section {
+  margin-bottom: 14px;
+}
+
+.topic-detail-section:last-child {
+  margin-bottom: 0;
+}
+
+.topic-detail-label {
+  font-size: 12px;
+  font-weight: 510;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.topic-detail-text {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  line-height: 1.7;
+}
+
+.topic-detail-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.topic-detail-list li {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  line-height: 1.7;
+  padding-left: 16px;
+  position: relative;
+  margin-bottom: 4px;
+}
+
+.topic-detail-list li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: var(--brand);
+}
+
+.topic-langs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 8px;
 }
 
 .heat-bar {
@@ -1410,4 +1502,314 @@ p {
   .archive-item .archive-summary {
     white-space: normal;
   }
+}
+
+/* ---------- 13. Theme Toggle ---------- */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--btn-bg);
+  cursor: pointer;
+  font-size: 18px;
+  transition: background var(--duration) var(--ease),
+    border-color var(--duration) var(--ease);
+  flex-shrink: 0;
+}
+
+.theme-toggle:hover {
+  background: var(--btn-bg-hover);
+  border-color: var(--border-strong);
+}
+
+/* ---------- 14. Run Button + Progress ---------- */
+.run-btn-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.run-progress {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.run-progress.active {
+  display: flex;
+}
+
+.run-progress .spinner {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}
+
+.run-result {
+  display: none;
+  margin-top: 12px;
+  padding: 16px 20px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.run-result.success {
+  display: block;
+  background: rgba(39, 166, 68, 0.08);
+  border: 1px solid rgba(39, 166, 68, 0.2);
+  color: var(--success);
+}
+
+.run-result.error {
+  display: block;
+  background: rgba(248, 81, 73, 0.08);
+  border: 1px solid rgba(248, 81, 73, 0.2);
+  color: var(--danger);
+}
+
+/* ---------- 15. Trend Tabs ---------- */
+.source-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 0;
+}
+
+.source-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  cursor: pointer;
+  transition: color var(--duration) var(--ease),
+    background var(--duration) var(--ease),
+    border-color var(--duration) var(--ease);
+  white-space: nowrap;
+}
+
+.source-tab:hover {
+  color: var(--text-secondary);
+  background: var(--surface-1);
+}
+
+.source-tab.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--brand-indigo);
+  background: var(--surface-1);
+}
+
+.source-tab .tab-count {
+  font-size: 11px;
+  color: var(--text-quaternary);
+  padding: 0 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+}
+
+.source-tab.active .tab-count {
+  color: var(--text-tertiary);
+}
+
+.tab-panel {
+  display: none;
+}
+
+.tab-panel.active {
+  display: block;
+}
+
+/* Load more button for trends */
+.load-more-wrapper {
+  text-align: center;
+  padding: 24px 0;
+}
+
+/* ---------- 16. Settings Page ---------- */
+.settings-section {
+  background: var(--surface-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 28px;
+  margin-bottom: 24px;
+}
+
+.settings-section-title {
+  font-size: 16px;
+  font-weight: 510;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.settings-section-desc {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin-bottom: 20px;
+}
+
+.settings-form .form-field {
+  margin-bottom: 18px;
+}
+
+.settings-form .form-field label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.settings-form .form-field input,
+.settings-form .form-field select {
+  width: 100%;
+  max-width: 480px;
+  padding: 9px 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: var(--font-sans);
+  transition: border-color var(--duration) var(--ease),
+    background var(--duration) var(--ease);
+}
+
+.settings-form .form-field input:focus,
+.settings-form .form-field select:focus {
+  outline: none;
+  border-color: var(--brand-indigo);
+  background: var(--surface-2);
+}
+
+.settings-form .form-field input::placeholder {
+  color: var(--text-quaternary);
+}
+
+.settings-form .form-field .form-hint {
+  font-size: 12px;
+  color: var(--text-quaternary);
+  margin-top: 5px;
+}
+
+.settings-form .form-actions {
+  margin-top: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-save-msg {
+  font-size: 13px;
+  min-height: 20px;
+}
+
+.settings-save-msg.success {
+  color: var(--success);
+}
+
+.settings-save-msg.error {
+  color: var(--danger);
+}
+
+/* Toggle switch for Twitter */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  transition: background var(--duration) var(--ease),
+    border-color var(--duration) var(--ease);
+}
+
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  height: 16px;
+  width: 16px;
+  left: 3px;
+  bottom: 3px;
+  background: var(--text-tertiary);
+  border-radius: 50%;
+  transition: transform var(--duration) var(--ease),
+    background var(--duration) var(--ease);
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background: rgba(94, 106, 210, 0.15);
+  border-color: var(--brand-indigo);
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(20px);
+  background: var(--brand-indigo);
+}
+
+/* ---------- 17. Logout Button ---------- */
+.logout-btn {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--btn-bg);
+  color: var(--text-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--duration) var(--ease),
+    color var(--duration) var(--ease),
+    border-color var(--duration) var(--ease);
+}
+
+.logout-btn:hover {
+  background: var(--btn-bg-hover);
+  color: var(--text-secondary);
+  border-color: var(--border-default);
+}
+
+/* ---------- 18. Light Theme Badge Borders ---------- */
+[data-theme="light"] .badge,
+[data-theme="light"] .source-count,
+[data-theme="light"] .section-count {
+  border-color: var(--border-default);
+}
+
+[data-theme="light"] .scaffold-link {
+  border-color: var(--border-default);
+}
+
+[data-theme="light"] .date-selector select {
+  background-color: var(--bg-panel);
 }

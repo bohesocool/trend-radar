@@ -38,8 +38,11 @@ _USER_PROMPT_TEMPLATE = """以下是 {date} 采集到的技术热点数据：
       "topic": "主题名称",
       "heat_score": 1-100的整数,
       "trend": "rising 或 peak 或 sustained 或 cooling",
-      "description": "为什么这个方向热（1-2句）",
+      "description": "为什么这个方向热（2-3句详细分析，不要只写一句话）",
+      "detailed_analysis": "对该主题的深度分析(3-5句话)，包括：技术背景、为什么现在爆发、未来走势预判",
       "evidence": ["GitHub:xxx项目", "HN:xxx帖子", "arXiv:xxx论文"],
+      "key_insights": ["洞察1: 从数据中发现的非显而易见的模式或关联", "洞察2: 技术演进的关键信号"],
+      "recommendations": ["建议关注的行动1", "建议关注的行动2"],
       "languages": ["Python", "TypeScript"]
     }}
   ],
@@ -59,7 +62,10 @@ _USER_PROMPT_TEMPLATE = """以下是 {date} 采集到的技术热点数据：
 - hot_topics: 3-8 个
 - emerging_opportunities: 3-5 个
 - heat_score 基于数据源数量和热度综合估算
-- evidence 要引用具体的数据中的项目/帖子/论文"""
+- evidence 要引用具体的数据中的项目/帖子/论文
+- description 要有实质内容，不是一句话概括
+- detailed_analysis 要有深度，分析技术背景和趋势逻辑
+- key_insights 要有洞察力，不是简单复述数据"""
 
 
 def analyze_trends(items: list[TrendItem], date_str: str | None = None) -> TrendAnalysis:
@@ -98,7 +104,10 @@ def _parse_analysis(data: dict[str, Any], date_str: str, raw_count: int) -> Tren
                 heat_score=float(ht.get("heat_score", 50)),
                 trend=ht.get("trend", "rising"),
                 description=ht.get("description", ""),
+                detailed_analysis=ht.get("detailed_analysis", ""),
                 evidence=ht.get("evidence", []),
+                key_insights=ht.get("key_insights", []),
+                recommendations=ht.get("recommendations", []),
                 languages=ht.get("languages", []),
             )
         )

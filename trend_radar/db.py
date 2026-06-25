@@ -69,11 +69,13 @@ def init_db() -> None:
 
 
 def save_trend_items(items: list[TrendItem], date_str: str | None = None) -> None:
-    """批量保存采集到的 TrendItem。"""
+    """批量保存采集到的 TrendItem。先删除同日期旧数据，避免重复。"""
     if not items:
         return
     date_str = date_str or datetime.now().strftime("%Y-%m-%d")
     with _get_conn() as conn:
+        # 先删除同日期旧数据，防止重复运行导致数据翻倍
+        conn.execute("DELETE FROM trends WHERE date = ?", (date_str,))
         for item in items:
             conn.execute(
                 """
@@ -94,14 +96,40 @@ def save_trend_items(items: list[TrendItem], date_str: str | None = None) -> Non
             )
 
 
+# 每个数据源最多保留的条目数
+_SOURCE_LIMITS = {
+    "github": 30,
+    "hackernews": 10,
+    "reddit": 10,
+    "twitter": 10,
+    "arxiv": 10,
+}
+_DEFAULT_LIMIT = 10
+
+
 def get_trend_items_by_date(date_str: str) -> list[dict[str, Any]]:
-    """读取指定日期的所有采集数据。"""
+    """读取指定日期的采集数据，每源按热度排序后只保留 Top-N。"""
     with _get_conn() as conn:
         rows = conn.execute(
             "SELECT * FROM trends WHERE date = ? ORDER BY popularity DESC",
             (date_str,),
         ).fetchall()
-        return [dict(r) for r in rows]
+    all_items = [dict(r) for r in rows]
+
+    # 每个数据源只保留前 N 条（已按 popularity DESC 排序）
+    by_source: dict[str, list[dict[str, Any]]] = {}
+    for item in all_items:
+        src = item.get("source") or "unknown"
+        by_source.setdefault(src, []).append(item)
+
+    limited: list[dict[str, Any]] = []
+    for src, items in by_source.items():
+        limit = _SOURCE_LIMITS.get(src, _DEFAULT_LIMIT)
+        limited.extend(items[:limit])
+
+    # 全部重新按 popularity DESC 排序
+    limited.sort(key=lambda x: x.get("popularity", 0), reverse=True)
+    return limited
 
 
 def save_analysis(date_str: str, summary: str, hot_topics: list, opportunities: list, raw_count: int) -> None:
