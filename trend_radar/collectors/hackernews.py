@@ -1,11 +1,13 @@
-"""Hacker News 采集器 — 使用 HN Algolia API 搜索 AI 相关热门帖子。
+"""Hacker News 采集器 — 使用 HN Algolia API 搜索 AI 相关近期帖子。
 
-注意: HN Algolia API 的 `points` 字段不支持 numericFilters 过滤，
-所以用 search 端点获取结果后在客户端按 min_points 过滤。
+用 `/search_by_date` 端点 + `numericFilters=created_at_i>...` 锁定最近的时间窗
+(默认近 24 小时)，避免 `/search` 按相关度返回历史高分老帖。
+points 字段不支持服务端过滤，所以在客户端按 min_points 过滤。
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -24,18 +26,21 @@ class HackerNewsCollector(BaseCollector):
         super().__init__(config)
         self.min_points: int = config.get("min_points", 100)
         self.ai_keywords: list[str] = config.get("ai_keywords", [])
+        self.window_hours: int = config.get("window_hours", 24)
 
     async def collect(self) -> list[TrendItem]:
         items: list[TrendItem] = []
+        since_ts = int((datetime.now(timezone.utc) - timedelta(hours=self.window_hours)).timestamp())
         async with httpx.AsyncClient(timeout=30) as client:
             for kw in self.ai_keywords:
                 try:
                     resp = await client.get(
-                        f"{_API_BASE}/search",
+                        f"{_API_BASE}/search_by_date",
                         params={
                             "query": kw,
                             "tags": "story",
-                            "hitsPerPage": 20,
+                            "numericFilters": f"created_at_i>{since_ts}",
+                            "hitsPerPage": 50,
                         },
                     )
                     resp.raise_for_status()
@@ -71,7 +76,10 @@ class HackerNewsCollector(BaseCollector):
             if item.url not in seen:
                 seen.add(item.url)
                 unique.append(item)
-        logger.info(f"Hacker News: 采集到 {len(unique)} 个帖子 (去重后, min_points={self.min_points})")
+        logger.info(
+            f"Hacker News: 采集到 {len(unique)} 个帖子 "
+            f"(去重后, min_points={self.min_points}, 近{self.window_hours}h)"
+        )
         return unique
 
     @staticmethod

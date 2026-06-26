@@ -158,6 +158,9 @@ async def trends_page(request: Request) -> HTMLResponse:
                 "d": item.get("description", ""),
                 "l": item.get("language", ""),
                 "p": item.get("popularity", ""),
+                "s": item.get("total_stars", ""),
+                "r": item.get("daily_rate", ""),
+                "n": item.get("is_new", False),
                 "g": item.get("tags", "[]"),
             }
             for item in by_source[src]
@@ -240,12 +243,14 @@ async def trends_page(request: Request) -> HTMLResponse:
 
       function renderCard(item) {{
         var tags = parseTags(item.g);
+        var stars = (item.s !== '' && item.s != null) ? item.s : item.p;
         var html = '<div class="trend-card">';
-        html += '<div class="trend-title"><a href="' + esc(item.u) + '" target="_blank" rel="noopener">' + esc(item.t) + '</a></div>';
+        html += '<div class="trend-title"><a href="' + esc(item.u) + '" target="_blank" rel="noopener">' + esc(item.t) + '</a>' + (item.n ? ' <span class="badge badge-rising">NEW</span>' : '') + '</div>';
         if (item.d) html += '<div class="trend-desc">' + esc(item.d) + '</div>';
         html += '<div class="trend-meta">';
         if (item.l) html += '<span class="badge badge-tool">' + esc(item.l) + '</span>';
-        if (item.p) html += '<span class="trend-popularity">★ ' + esc(item.p) + '</span>';
+        if (stars) html += '<span class="trend-popularity">★ ' + esc(stars) + '</span>';
+        if (item.r) html += '<span class="trend-popularity">📈 +' + esc(item.r) + '/天</span>';
         tags.forEach(function(tag) {{ html += '<span class="badge badge-sustained">' + esc(tag) + '</span>'; }});
         html += '</div></div>';
         return html;

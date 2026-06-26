@@ -81,6 +81,15 @@ async def run_daily(progress=None) -> DailyReport:
     _emit(1, "采集数据")
     items = await run_collect_all()
     logger.info(f"共采集 {len(items)} 条数据")
+    # 跨天新鲜度标记：近 7 天未出现过的 url 记为 NEW
+    seen = db.get_seen_urls(date_str, days=7)
+    new_count = 0
+    for it in items:
+        is_new = it.url not in seen
+        it.extra["is_new"] = is_new
+        if is_new:
+            new_count += 1
+    logger.info(f"其中 {new_count} 条为近 7 天首次出现 (NEW)")
     db.save_trend_items(items, date_str)
 
     # 2. 分析

@@ -22,13 +22,15 @@ class RedditCollector(BaseCollector):
         super().__init__(config)
         self.subreddits: list[str] = config.get("subreddits", ["MachineLearning"])
         self.limit: int = config.get("limit", 25)
+        # hot / day / week ... 锁定当天热帖用 "day"
+        self.timeframe: str = config.get("timeframe", "day")
 
     async def collect(self) -> list[TrendItem]:
         items: list[TrendItem] = []
         for sub in self.subreddits:
             try:
-                # 用 RSS feed 替代 .json (不会被 403)
-                url = f"https://www.reddit.com/r/{sub}/.rss?limit={self.limit}"
+                # top/.rss?t=day 锁定当天热帖（默认 hot 流会混入置顶老帖）
+                url = f"https://www.reddit.com/r/{sub}/top/.rss?t={self.timeframe}&limit={self.limit}"
                 feed = feedparser.parse(url)
                 for entry in feed.entries[: self.limit]:
                     # 解析 upvotes — RSS 里没有直接的 upvote 数，用 score 或默认 0

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -95,6 +95,20 @@ def save_trend_items(items: list[TrendItem], date_str: str | None = None) -> Non
             )
 
 
+def get_seen_urls(before_date: str, days: int = 7) -> set[str]:
+    """返回 before_date 之前 days 天内已出现过的 url 集合，用于新鲜度(NEW)判断。"""
+    try:
+        start = (datetime.strptime(before_date, "%Y-%m-%d") - timedelta(days=days)).strftime("%Y-%m-%d")
+    except ValueError:
+        return set()
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT url FROM trends WHERE date < ? AND date >= ? AND url IS NOT NULL",
+            (before_date, start),
+        ).fetchall()
+    return {r["url"] for r in rows}
+
+
 # 每个数据源最多保留的条目数
 _SOURCE_LIMITS = {
     "github": 30,
@@ -107,15 +121,33 @@ _DEFAULT_LIMIT = 10
 
 
 def get_trend_items_by_date(date_str: str) -> list[dict[str, Any]]:
-    """读取指定日期的采集数据，每源按热度排序后只保留 Top-N。"""
+    """读取指定日期的采集数据，每源按热度排序后只保留 Top-N。
+
+    排序口径：NEW(首次出现) 优先，其次按 popularity 降序。
+    并把 extra 里的 is_new / total_stars / daily_rate 提升到顶层，方便前端展示。
+    """
     with _get_conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM trends WHERE date = ? ORDER BY popularity DESC",
+            "SELECT * FROM trends WHERE date = ?",
             (date_str,),
         ).fetchall()
     all_items = [dict(r) for r in rows]
 
-    # 每个数据源只保留前 N 条（已按 popularity DESC 排序）
+    for item in all_items:
+        try:
+            extra = json.loads(item.get("extra") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            extra = {}
+        item["is_new"] = bool(extra.get("is_new"))
+        if extra.get("total_stars") is not None:
+            item["total_stars"] = extra["total_stars"]
+        if extra.get("daily_rate") is not None:
+            item["daily_rate"] = extra["daily_rate"]
+
+    def _sort_key(x: dict[str, Any]) -> tuple[int, int]:
+        return (1 if x.get("is_new") else 0, x.get("popularity", 0) or 0)
+
+    # 每个数据源只保留前 N 条（NEW 优先，再按 popularity）
     by_source: dict[str, list[dict[str, Any]]] = {}
     for item in all_items:
         src = item.get("source") or "unknown"
@@ -123,11 +155,11 @@ def get_trend_items_by_date(date_str: str) -> list[dict[str, Any]]:
 
     limited: list[dict[str, Any]] = []
     for src, items in by_source.items():
+        items.sort(key=_sort_key, reverse=True)
         limit = _SOURCE_LIMITS.get(src, _DEFAULT_LIMIT)
         limited.extend(items[:limit])
 
-    # 全部重新按 popularity DESC 排序
-    limited.sort(key=lambda x: x.get("popularity", 0), reverse=True)
+    limited.sort(key=_sort_key, reverse=True)
     return limited
 
 

@@ -80,8 +80,11 @@ def format_items_for_llm(items: list[TrendItem]) -> str:
         lines = [f"\n【{label}】"]
         for item in sorted(grouped, key=lambda x: x.popularity, reverse=True)[:20]:
             if source == "github":
+                total = item.extra.get("total_stars", item.popularity)
+                rate = item.extra.get("daily_rate", item.popularity)
+                new = " 🆕" if item.extra.get("is_new") else ""
                 lines.append(
-                    f"- {item.title}: {item.description} ⭐{item.popularity} lang={item.language}"
+                    f"- {item.title}{new}: {item.description} ⭐{total} (+{rate}/天) lang={item.language}"
                 )
             elif source == "hackernews":
                 comments = item.extra.get("num_comments", 0)

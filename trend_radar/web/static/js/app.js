@@ -618,15 +618,18 @@ async function loadTrendSource(source, expectedCount) {
 
 function renderTrendCard(t) {
   const tags = parseJSONField(t.tags, []);
+  const stars = (t.total_stars != null) ? t.total_stars : t.popularity;
   return `
     <div class="trend-card">
       <div class="trend-title">
         <a href="${esc(t.url || '#')}" target="_blank" rel="noopener">${esc(t.title || '')}</a>
+        ${t.is_new ? `<span class="badge badge-rising">NEW</span>` : ''}
       </div>
       ${t.description ? `<div class="trend-desc">${esc(t.description)}</div>` : ''}
       <div class="trend-meta">
         ${t.language ? `<span class="badge badge-tool">${esc(t.language)}</span>` : ''}
-        ${t.popularity ? `<span class="trend-popularity">★ ${esc(t.popularity)}</span>` : ''}
+        ${stars ? `<span class="trend-popularity">★ ${esc(stars)}</span>` : ''}
+        ${t.daily_rate ? `<span class="trend-popularity">📈 +${esc(t.daily_rate)}/天</span>` : ''}
         ${tags.map((tag) => `<span class="badge badge-sustained">${esc(tag)}</span>`).join('')}
       </div>
     </div>`;

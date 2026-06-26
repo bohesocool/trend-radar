@@ -6,13 +6,14 @@ from datetime import datetime
 from typing import Any
 
 import feedparser
+import httpx
 from loguru import logger
 
 from trend_radar.collectors.base import BaseCollector
 from trend_radar.models import TrendItem
 
 # arXiv API: http://export.arxiv.org/api/query
-_ARXIV_API = "http://export.arxiv.org/api/query"
+_ARXIV_API = "https://export.arxiv.org/api/query"
 
 
 class ArxivCollector(BaseCollector):
@@ -24,11 +25,9 @@ class ArxivCollector(BaseCollector):
         self.max_results: int = config.get("max_results", 30)
 
     async def collect(self) -> list[TrendItem]:
-        # feedparser 是同步的，但在采集场景下足够
         items: list[TrendItem] = []
         cat_query = " OR ".join(f"cat:{c}" for c in self.categories)
-        # 使用 urllib.parse 正确编码 URL
-        from urllib.parse import urlencode, quote
+        from urllib.parse import urlencode
         params = urlencode({
             "search_query": cat_query,
             "sortBy": "submittedDate",
@@ -37,7 +36,12 @@ class ArxivCollector(BaseCollector):
         })
         url = f"{_ARXIV_API}?{params}"
         try:
-            feed = feedparser.parse(url)
+            # 用 httpx 抓取(自带 certifi 证书)，再交给 feedparser 解析。
+            # feedparser 自带的 urllib 在部分环境会 SSL 校验失败导致静默返回 0 条。
+            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+            feed = feedparser.parse(resp.content)
             for entry in feed.entries:
                 # 提取摘要前 200 字
                 abstract = entry.get("summary", "")

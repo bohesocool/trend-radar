@@ -4,16 +4,26 @@
 collectors:
   github_trending:
     enabled: true
-    languages: ["python"]  # 先只采 python，加快速度
+    languages: ["python", ""]   # "" = 全语言 trending；提供「今日涨星」信号
     since: "daily"
+    ai_only: true               # trending 结果按 AI 关键词过滤
+    ai_keywords: ["ai", "llm", "gpt", "agent", "rag", "ml", "neural", "model", "diffusion", "transformer", "prompt", "chatbot", "openai", "anthropic", "mcp", "embedding"]
+    # Search API：锁定「近 N 天新建的 AI 仓库」，弥补 trending 无法按主题筛
+    search_enabled: true
+    search_queries: ["topic:llm", "topic:ai-agents", "topic:rag", "topic:generative-ai", "topic:agent"]
+    search_days: 30             # 只看近 30 天新建的仓库
+    search_limit: 30
+    token: "${GITHUB_TOKEN}"    # 可选；填了限额从 60/h 提升到 5000/h
   hackernews:
     enabled: true
     min_points: 100
+    window_hours: 72            # 只取近 72 小时的帖子
     ai_keywords: ["AI", "LLM", "GPT", "agent", "model", "transformer", "diffusion", "RAG", "fine-tune", "embedding"]
   reddit:
     enabled: true
     subreddits: ["MachineLearning", "artificial", "LocalLLaMA"]
     limit: 25
+    timeframe: "day"            # top/.rss?t=day 锁定当天热帖
   twitter:
     enabled: false
     accounts: ["karpathy", "_jasonwei", "swyxk", "cxiao"]
