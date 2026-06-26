@@ -116,9 +116,24 @@ async function getJSON(path) {
   return fetchWithAuth(`${API}${path}`);
 }
 
-/** Shorthand for POST JSON (no body needed for our on-demand generate endpoints). */
-async function postJSON(path) {
-  return fetchWithAuth(`${API}${path}`, { method: 'POST' });
+/** Shorthand for POST JSON. Optional body is sent as JSON. */
+async function postJSON(path, body) {
+  const opts = { method: 'POST' };
+  if (body !== undefined) {
+    opts.headers = { 'Content-Type': 'application/json' };
+    opts.body = JSON.stringify(body);
+  }
+  return fetchWithAuth(`${API}${path}`, opts);
+}
+
+/** Shorthand for DELETE JSON with an optional JSON body. */
+async function delJSON(path, body) {
+  const opts = { method: 'DELETE' };
+  if (body !== undefined) {
+    opts.headers = { 'Content-Type': 'application/json' };
+    opts.body = JSON.stringify(body);
+  }
+  return fetchWithAuth(`${API}${path}`, opts);
 }
 
 /* ============================================================
@@ -679,6 +694,41 @@ window.loadTrendSource = loadTrendSource;
    7. Suggestions Page
    ============================================================ */
 
+let _suggManage = false;        // 是否处于管理模式
+let _suggSelected = new Set();  // 已选中的建议 id
+let _suggDate = '';             // 当前查看的日期
+let _suggData = [];             // 当前日期的建议列表（摘要数据，用于导出）
+
+/** 渲染单张建议卡片（div 版，支持选中/置顶）。 */
+function suggestionCardHTML(s) {
+  const techStack = (s.tech_stack || []).slice(0, 5);
+  const pinned = !!s.pinned;
+  let html = `
+    <div class="suggestion-card sugg-card${pinned ? ' pinned' : ''}" data-id="${s.id}">
+      <input type="checkbox" class="sugg-check" aria-label="选择" ${_suggSelected.has(s.id) ? 'checked' : ''}>
+      <button class="sugg-pin${pinned ? ' active' : ''}" title="置顶/取消置顶" aria-label="置顶">${pinned ? '★' : '☆'}</button>
+      <div class="suggestion-head">
+        <div class="suggestion-name">${esc(s.name)}</div>
+        ${categoryBadge(s.category)}
+      </div>
+      <div class="suggestion-tagline">${esc(s.tagline || '')}</div>
+      <div class="suggestion-desc">${esc(s.description || '')}</div>
+      <div class="suggestion-meta">
+        ${s.estimated_stars ? `<span class="meta-item"><span>★</span><span class="meta-value">${esc(s.estimated_stars)}</span></span>` : ''}
+        ${s.timeline ? `<span class="meta-item"><span>⏱</span><span class="meta-value">${esc(s.timeline)}</span></span>` : ''}
+        ${s.difficulty ? `<span class="meta-item ${difficultyClass(s.difficulty)}">${esc(s.difficulty)}</span>` : ''}
+      </div>`;
+  if (techStack.length) {
+    html += `<div class="suggestion-section">
+      <div style="display:flex; flex-wrap:wrap; gap:6px;">
+        ${techStack.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}
+      </div>
+    </div>`;
+  }
+  html += `<div class="suggestion-cta">查看详情 →</div></div>`;
+  return html;
+}
+
 async function loadSuggestions() {
   if (Auth.requireAuth()) return;
 
@@ -699,6 +749,12 @@ async function loadSuggestions() {
     const report = await getJSON(`/report/${selectedDate}`);
     const suggestions = report.suggestions || [];
 
+    // 重置管理状态
+    _suggManage = false;
+    _suggSelected = new Set();
+    _suggDate = selectedDate;
+    _suggData = suggestions;
+
     let dateSelector = `<div class="date-selector"><label>日期</label><select onchange="navigateTo('/suggestions?date='+this.value)">`;
     dates.forEach((d) => {
       dateSelector += `<option value="${esc(d)}" ${d === selectedDate ? 'selected' : ''}>${esc(d)}</option>`;
@@ -706,7 +762,11 @@ async function loadSuggestions() {
     dateSelector += `</select></div>`;
 
     let html = dateSelector;
-    html += `<div class="section-title">项目建议 <span class="section-count">${suggestions.length}</span></div>`;
+    html += `<div class="section-title">项目建议 <span class="section-count">${suggestions.length}</span>`;
+    if (suggestions.length) {
+      html += `<button class="btn btn-ghost btn-sm sugg-manage-btn" id="sugg-manage-btn">管理</button>`;
+    }
+    html += `</div>`;
 
     if (!suggestions.length) {
       html += `<div class="card"><p class="text-tertiary" style="font-size:13px;">此日期无建议</p></div>`;
@@ -714,43 +774,221 @@ async function loadSuggestions() {
       return;
     }
 
-    html += `<div class="suggestions-grid">`;
-
-    for (const s of suggestions) {
-      const techStack = (s.tech_stack || []).slice(0, 5);
-
-      html += `
-        <a class="suggestion-card suggestion-card-link" href="/suggestion/${s.id}">
-          <div class="suggestion-head">
-            <div class="suggestion-name">${esc(s.name)}</div>
-            ${categoryBadge(s.category)}
-          </div>
-          <div class="suggestion-tagline">${esc(s.tagline || '')}</div>
-          <div class="suggestion-desc">${esc(s.description || '')}</div>
-
-          <div class="suggestion-meta">
-            ${s.estimated_stars ? `<span class="meta-item"><span>★</span><span class="meta-value">${esc(s.estimated_stars)}</span></span>` : ''}
-            ${s.timeline ? `<span class="meta-item"><span>⏱</span><span class="meta-value">${esc(s.timeline)}</span></span>` : ''}
-            ${s.difficulty ? `<span class="meta-item ${difficultyClass(s.difficulty)}">${esc(s.difficulty)}</span>` : ''}
-          </div>`;
-
-      if (techStack.length) {
-        html += `<div class="suggestion-section">
-          <div style="display:flex; flex-wrap:wrap; gap:6px;">
-            ${techStack.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}
-          </div>
-        </div>`;
-      }
-
-      html += `<div class="suggestion-cta">查看详情 →</div>`;
-      html += `</a>`;
-    }
-
+    html += `<div class="suggestions-grid" id="sugg-grid">`;
+    for (const s of suggestions) html += suggestionCardHTML(s);
     html += `</div>`;
+
+    // 底部浮动工具栏（仅管理模式显示）
+    html += `<div class="sugg-toolbar" id="sugg-toolbar" hidden>
+      <span class="sugg-toolbar-count">已选 <b id="sugg-sel-count">0</b> 项</span>
+      <div class="sugg-toolbar-actions">
+        <button class="btn btn-ghost btn-sm" id="sugg-selall">全选</button>
+        <button class="btn btn-ghost btn-sm" id="sugg-export">导出</button>
+        <button class="btn btn-danger btn-sm" id="sugg-delete">删除</button>
+        <button class="btn btn-ghost btn-sm" id="sugg-exit">退出管理</button>
+      </div>
+    </div>`;
+
     setBody(html);
+    _wireSuggestions();
   } catch (e) {
     setBody(errorHTML(e.message));
   }
+}
+
+/** 绑定建议页的所有交互（每次渲染后调用）。 */
+function _wireSuggestions() {
+  const grid = document.getElementById('sugg-grid');
+  const manageBtn = document.getElementById('sugg-manage-btn');
+  if (!grid) return;
+
+  if (manageBtn) manageBtn.addEventListener('click', () => _setSuggManage(!_suggManage));
+
+  grid.addEventListener('click', (e) => {
+    const card = e.target.closest('.sugg-card');
+    if (!card) return;
+    const id = Number(card.dataset.id);
+
+    if (e.target.closest('.sugg-pin')) {
+      e.preventDefault();
+      _togglePin(id, card);
+      return;
+    }
+    if (e.target.closest('.sugg-check')) {
+      _toggleSelect(id, card);
+      return;
+    }
+    if (_suggManage) {
+      _toggleSelect(id, card);
+      return;
+    }
+    navigateTo('/suggestion/' + id);
+  });
+
+  const on = (idAttr, fn) => { const el = document.getElementById(idAttr); if (el) el.addEventListener('click', fn); };
+  on('sugg-exit', () => _setSuggManage(false));
+  on('sugg-selall', _toggleSelectAll);
+  on('sugg-delete', _deleteSelected);
+  on('sugg-export', _exportSelected);
+}
+
+function _setSuggManage(on) {
+  _suggManage = on;
+  const grid = document.getElementById('sugg-grid');
+  const toolbar = document.getElementById('sugg-toolbar');
+  const btn = document.getElementById('sugg-manage-btn');
+  if (grid) grid.classList.toggle('manage', on);
+  if (toolbar) toolbar.hidden = !on;
+  if (btn) btn.textContent = on ? '完成' : '管理';
+  if (!on) {
+    _suggSelected.clear();
+    grid?.querySelectorAll('.sugg-card.selected').forEach((c) => c.classList.remove('selected'));
+    grid?.querySelectorAll('.sugg-check').forEach((c) => { c.checked = false; });
+    const selall = document.getElementById('sugg-selall');
+    if (selall) selall.textContent = '全选';
+  }
+  _updateSuggToolbar();
+}
+
+function _toggleSelect(id, card) {
+  const sel = _suggSelected.has(id);
+  if (sel) _suggSelected.delete(id); else _suggSelected.add(id);
+  const now = _suggSelected.has(id);
+  card.classList.toggle('selected', now);
+  const cb = card.querySelector('.sugg-check');
+  if (cb) cb.checked = now;
+  _updateSuggToolbar();
+}
+
+function _toggleSelectAll() {
+  const grid = document.getElementById('sugg-grid');
+  if (!grid) return;
+  const cards = [...grid.querySelectorAll('.sugg-card')];
+  const allSelected = cards.length && cards.every((c) => _suggSelected.has(Number(c.dataset.id)));
+  cards.forEach((c) => {
+    const id = Number(c.dataset.id);
+    if (allSelected) _suggSelected.delete(id); else _suggSelected.add(id);
+    const now = _suggSelected.has(id);
+    c.classList.toggle('selected', now);
+    const cb = c.querySelector('.sugg-check');
+    if (cb) cb.checked = now;
+  });
+  const selall = document.getElementById('sugg-selall');
+  if (selall) selall.textContent = allSelected ? '全选' : '取消全选';
+  _updateSuggToolbar();
+}
+
+function _updateSuggToolbar() {
+  const count = document.getElementById('sugg-sel-count');
+  if (count) count.textContent = String(_suggSelected.size);
+  const del = document.getElementById('sugg-delete');
+  const exp = document.getElementById('sugg-export');
+  const empty = _suggSelected.size === 0;
+  if (del) del.disabled = empty;
+  if (exp) exp.disabled = empty;
+}
+
+async function _togglePin(id, card) {
+  const willPin = !card.classList.contains('pinned');
+  const btn = card.querySelector('.sugg-pin');
+  try {
+    await postJSON(`/suggestion/${id}/pin`, { pinned: willPin });
+    // 置顶状态变化会影响排序，重新加载列表
+    loadSuggestions();
+  } catch (e) {
+    if (btn) { btn.classList.add('pin-error'); setTimeout(() => btn.classList.remove('pin-error'), 1200); }
+    alert('操作失败：' + e.message);
+  }
+}
+
+async function _deleteSelected() {
+  const ids = [..._suggSelected];
+  if (!ids.length) return;
+  const ok = await confirmGlass({
+    icon: '🗑️',
+    title: `删除 ${ids.length} 个项目建议？`,
+    desc: '删除后无法恢复。项目建议是可由 AI 重新生成的内容。',
+    confirmLabel: '永久删除',
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    await delJSON('/suggestions', { ids });
+    loadSuggestions();
+  } catch (e) {
+    alert('删除失败：' + e.message);
+  }
+}
+
+function _exportSelected() {
+  const ids = _suggSelected;
+  const items = _suggData.filter((s) => ids.has(s.id));
+  if (!items.length) return;
+  let md = `# 项目建议导出（${_suggDate}）\n\n`;
+  items.forEach((s, i) => {
+    md += `## ${i + 1}. ${s.name}\n\n`;
+    if (s.tagline) md += `> ${s.tagline}\n\n`;
+    if (s.category) md += `- **分类**：${s.category}\n`;
+    if (s.estimated_stars) md += `- **预估 Star**：${s.estimated_stars}\n`;
+    if (s.timeline) md += `- **时间线**：${s.timeline}\n`;
+    if (s.difficulty) md += `- **难度**：${s.difficulty}\n`;
+    md += `\n`;
+    if (s.description) md += `${s.description}\n\n`;
+    if ((s.tech_stack || []).length) md += `**技术栈**：${s.tech_stack.join('、')}\n\n`;
+    if ((s.key_features || []).length) md += `**核心功能**：\n${s.key_features.map((f) => `- ${f}`).join('\n')}\n\n`;
+    if ((s.viral_hooks || []).length) md += `**病毒传播因素**：${s.viral_hooks.join('、')}\n\n`;
+    md += `---\n\n`;
+  });
+  const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `项目建议_${_suggDate}.md`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/* ============================================================
+   7a. Reusable frosted-glass confirm dialog
+   ============================================================ */
+
+/** 通用毛玻璃确认框，返回 Promise<boolean>。 */
+function confirmGlass({ icon = '⚠️', title = '确认操作', desc = '', confirmLabel = '确认', danger = false } = {}) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'rd-overlay';
+    overlay.innerHTML = `
+      <div class="rd-modal" role="dialog" aria-modal="true">
+        <button class="rd-close" aria-label="关闭">✕</button>
+        <div class="rd-icon">${icon}</div>
+        <h3 class="rd-title">${esc(title)}</h3>
+        ${desc ? `<p class="rd-desc">${esc(desc)}</p>` : ''}
+        <div class="rd-actions">
+          <button class="btn btn-ghost" data-act="cancel">取消</button>
+          <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-act="ok">${esc(confirmLabel)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add('rd-show'));
+
+    const close = (val) => {
+      overlay.classList.remove('rd-show');
+      document.removeEventListener('keydown', onKey);
+      setTimeout(() => overlay.remove(), 240);
+      resolve(val);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') close(false); };
+    document.addEventListener('keydown', onKey);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) close(false);
+      const act = e.target.closest('[data-act]')?.dataset.act;
+      if (act === 'ok') close(true);
+      if (act === 'cancel') close(false);
+    });
+    overlay.querySelector('.rd-close').addEventListener('click', () => close(false));
+  });
 }
 
 /* ============================================================
@@ -819,7 +1057,10 @@ async function loadSuggestionDetail() {
     const similarProjects = s.similar_projects || [];
     const viralHooks = s.viral_hooks || [];
 
-    let html = `<a class="back-link" href="/suggestions?date=${esc(s.date || '')}">← 返回项目建议</a>`;
+    let html = `<div class="detail-topbar">
+      <a class="back-link" href="/suggestions?date=${esc(s.date || '')}">← 返回项目建议</a>
+      <button class="btn btn-ghost btn-sm" id="regen-btn">🔄 重新生成</button>
+    </div>`;
 
     html += `<div class="detail-header">
       <div class="suggestion-head">
@@ -878,8 +1119,31 @@ async function loadSuggestionDetail() {
     html += genSectionHTML('README 营销策略', 'readme_strategy', 'naming_tips', s, '生成 README 营销策略', 'genReadme');
 
     setBody(html);
+
+    const regenBtn = document.getElementById('regen-btn');
+    if (regenBtn) regenBtn.addEventListener('click', () => _regenerateSuggestion(id, regenBtn));
   } catch (e) {
     setBody(errorHTML(e.message));
+  }
+}
+
+async function _regenerateSuggestion(id, btn) {
+  const ok = await confirmGlass({
+    icon: '🔄',
+    title: '重新生成这个项目建议？',
+    desc: '将基于当天的趋势分析重新调用 AI 生成一个新点子，覆盖当前内容（约 10-30 秒）。置顶状态保留。',
+    confirmLabel: '重新生成',
+  });
+  if (!ok) return;
+  btn.disabled = true;
+  btn.textContent = '生成中…';
+  try {
+    await postJSON(`/suggestion/${id}/regenerate`);
+    loadSuggestionDetail();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = '🔄 重新生成';
+    alert('重新生成失败：' + e.message);
   }
 }
 

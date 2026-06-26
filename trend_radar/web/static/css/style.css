@@ -853,6 +853,87 @@ p {
   background: var(--text-quaternary);
 }
 
+/* ---- 管理模式：选中 / 置顶 / 工具栏 ---- */
+.sugg-card {
+  position: relative;
+  cursor: pointer;
+}
+
+.suggestions-grid.manage .sugg-card { cursor: pointer; }
+
+.sugg-card.selected {
+  border-color: var(--accent-violet);
+  box-shadow: 0 0 0 1px var(--accent-violet) inset;
+}
+
+.sugg-card.pinned {
+  border-color: var(--brand-indigo);
+}
+
+/* 复选框：默认隐藏，进入管理模式才显示 */
+.sugg-check {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent-violet);
+  cursor: pointer;
+  display: none;
+  z-index: 2;
+}
+.suggestions-grid.manage .sugg-check { display: block; }
+.suggestions-grid.manage .sugg-card { padding-left: 44px; }
+
+/* 置顶星按钮：右上角常驻 */
+.sugg-pin {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: var(--text-quaternary);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+  z-index: 2;
+}
+.sugg-pin:hover { background: var(--bg-hover); color: var(--accent-violet); transform: scale(1.1); }
+.sugg-pin.active { color: var(--brand-indigo); }
+.sugg-pin.pin-error { color: var(--danger); }
+
+.sugg-toolbar {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 18px;
+  border-radius: 14px;
+  background: linear-gradient(160deg, rgba(34, 35, 39, 0.9), rgba(20, 21, 23, 0.86));
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+}
+[data-theme="light"] .sugg-toolbar {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.94), rgba(247, 248, 248, 0.88));
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.14);
+}
+.sugg-toolbar[hidden] { display: none; }
+.sugg-toolbar-count { font-size: 13px; color: var(--text-secondary); white-space: nowrap; }
+.sugg-toolbar-count b { color: var(--text-primary); }
+.sugg-toolbar-actions { display: flex; gap: 8px; }
+
+.sugg-manage-btn { margin-left: auto; }
+
 .suggestion-meta {
   display: flex;
   align-items: center;
@@ -1936,13 +2017,6 @@ body.rd-lock { overflow: hidden; }
 }
 
 /* ---------- 19. Suggestion Card Link + Detail Page ---------- */
-.suggestion-card-link {
-  display: block;
-  text-decoration: none;
-  color: inherit;
-  cursor: pointer;
-}
-
 .suggestion-cta {
   margin-top: 14px;
   font-size: 13px;
@@ -1950,9 +2024,18 @@ body.rd-lock { overflow: hidden; }
   color: var(--accent-violet);
 }
 
-.suggestion-card-link:hover .suggestion-cta {
+.sugg-card:hover .suggestion-cta {
   text-decoration: underline;
 }
+
+.detail-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.detail-topbar .back-link { margin-bottom: 0; }
 
 .back-link {
   display: inline-block;

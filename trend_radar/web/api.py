@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from trend_radar import db
 from trend_radar.web.auth import require_auth
 
 router = APIRouter(prefix="/api")
+
+
+class DeleteSuggestionsBody(BaseModel):
+    ids: list[int]
+
+
+class PinSuggestionBody(BaseModel):
+    pinned: bool
 
 
 @router.get("/latest")
@@ -45,6 +55,7 @@ def get_report_by_date(date: str) -> dict[str, Any]:
             "tagline": s["tagline"],
             "category": s["category"],
             "description": s["description"],
+            "pinned": bool(s.get("pinned")),
             "tech_stack": full.get("tech_stack", []),
             "estimated_stars": full.get("estimated_stars", ""),
             "difficulty": full.get("difficulty", ""),
@@ -80,7 +91,68 @@ def get_suggestion(suggestion_id: int) -> dict[str, Any]:
     full = json.loads(row.get("full_data", "{}"))
     full["id"] = row["id"]
     full["date"] = row["date"]
+    full["pinned"] = bool(row.get("pinned"))
     return full
+
+
+@router.delete("/suggestions")
+def delete_suggestions(body: DeleteSuggestionsBody, auth: bool = Depends(require_auth)) -> dict[str, int]:
+    """批量删除项目建议（永久）。单个删除传单元素列表即可。"""
+    deleted = db.delete_suggestions(body.ids)
+    return {"deleted": deleted}
+
+
+@router.post("/suggestion/{suggestion_id}/pin")
+def pin_suggestion(
+    suggestion_id: int, body: PinSuggestionBody, auth: bool = Depends(require_auth)
+) -> dict[str, Any]:
+    """设置/取消置顶。"""
+    if not db.get_suggestion_by_id(suggestion_id):
+        raise HTTPException(status_code=404, detail="无此建议")
+    db.set_suggestion_pinned(suggestion_id, body.pinned)
+    return {"id": suggestion_id, "pinned": body.pinned}
+
+
+@router.post("/suggestion/{suggestion_id}/regenerate")
+def regenerate_suggestion(suggestion_id: int, auth: bool = Depends(require_auth)) -> dict[str, Any]:
+    """基于该建议所属日期的趋势分析，重新调 AI 生成一个新点子并替换当前卡（id/置顶保留）。"""
+    from trend_radar.generator.suggestion_engine import generate_suggestions
+    from trend_radar.models import HotTopic, Opportunity, TrendAnalysis
+
+    row = db.get_suggestion_by_id(suggestion_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="无此建议")
+
+    date = row["date"]
+    analysis_row = db.get_analysis_by_date(date)
+    if not analysis_row:
+        raise HTTPException(status_code=400, detail="该日期缺少趋势分析，无法重新生成")
+
+    def _build(cls, d):
+        # 仅保留 dataclass 已知字段，兼容历史数据的字段漂移
+        fields = {f.name for f in dataclasses.fields(cls)}
+        return cls(**{k: v for k, v in d.items() if k in fields})
+
+    hot_topics = [_build(HotTopic, d) for d in json.loads(analysis_row.get("hot_topics", "[]"))]
+    opportunities = [_build(Opportunity, d) for d in json.loads(analysis_row.get("opportunities", "[]"))]
+    analysis = TrendAnalysis(
+        date=date,
+        daily_summary=analysis_row.get("summary", ""),
+        hot_topics=hot_topics,
+        emerging_opportunities=opportunities,
+        raw_items_count=analysis_row.get("raw_items_count", 0),
+    )
+
+    try:
+        generated = generate_suggestions(analysis, 1)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"重新生成失败: {e}")
+    if not generated:
+        raise HTTPException(status_code=500, detail="重新生成失败：AI 未返回有效建议")
+
+    s = generated[0]
+    db.replace_suggestion(suggestion_id, s.name, s.tagline, s.category, s.description, s.__dict__)
+    return {"id": suggestion_id, "name": s.name}
 
 
 @router.post("/suggestion/{suggestion_id}/architecture")

@@ -65,6 +65,11 @@ app.add_middleware(GZipMiddleware, minimum_size=500)
 app.include_router(router)
 app.include_router(settings_router)
 
+# 确保数据库表结构最新（含 suggestions.pinned 迁移），幂等
+from trend_radar import db as _db
+
+_db.init_db()
+
 
 # ===== 页面路由 (HTML 不缓存，但静态资源引用带版本号) =====
 

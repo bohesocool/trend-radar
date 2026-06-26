@@ -58,6 +58,7 @@ def init_db() -> None:
                 category TEXT,
                 description TEXT,
                 full_data TEXT,
+                pinned INTEGER DEFAULT 0,
                 created_at TEXT DEFAULT (datetime('now'))
             );
 
@@ -65,6 +66,10 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_suggestions_date ON suggestions(date);
             """
         )
+        # 旧库迁移：补 pinned 列
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(suggestions)").fetchall()}
+        if "pinned" not in cols:
+            conn.execute("ALTER TABLE suggestions ADD COLUMN pinned INTEGER DEFAULT 0")
 
 
 def save_trend_items(items: list[TrendItem], date_str: str | None = None) -> None:
@@ -201,10 +206,10 @@ def save_suggestion(date_str: str, name: str, tagline: str, category: str, descr
 
 
 def get_suggestions_by_date(date_str: str) -> list[dict[str, Any]]:
-    """读取指定日期的项目建议。"""
+    """读取指定日期的项目建议。置顶项排在最前。"""
     with _get_conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM suggestions WHERE date = ? ORDER BY id",
+            "SELECT * FROM suggestions WHERE date = ? ORDER BY pinned DESC, id",
             (date_str,),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -226,6 +231,50 @@ def update_suggestion_full_data(suggestion_id: int, full_data: dict) -> None:
         conn.execute(
             "UPDATE suggestions SET full_data = ? WHERE id = ?",
             (json.dumps(full_data, ensure_ascii=False, default=str), suggestion_id),
+        )
+
+
+def delete_suggestions(ids: list[int]) -> int:
+    """批量删除项目建议（永久）。返回实际删除的行数。"""
+    if not ids:
+        return 0
+    placeholders = ",".join("?" for _ in ids)
+    with _get_conn() as conn:
+        cur = conn.execute(
+            f"DELETE FROM suggestions WHERE id IN ({placeholders})",
+            tuple(ids),
+        )
+        return cur.rowcount
+
+
+def set_suggestion_pinned(suggestion_id: int, pinned: bool) -> None:
+    """设置某个建议的置顶状态。"""
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE suggestions SET pinned = ? WHERE id = ?",
+            (1 if pinned else 0, suggestion_id),
+        )
+
+
+def replace_suggestion(
+    suggestion_id: int, name: str, tagline: str, category: str, description: str, full_data: dict
+) -> None:
+    """用新内容替换某个建议（重新生成时用）。保留 id、date、pinned 不变。"""
+    with _get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE suggestions
+            SET name = ?, tagline = ?, category = ?, description = ?, full_data = ?
+            WHERE id = ?
+            """,
+            (
+                name,
+                tagline,
+                category,
+                description,
+                json.dumps(full_data, ensure_ascii=False, default=str),
+                suggestion_id,
+            ),
         )
 
 
