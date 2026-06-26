@@ -1483,52 +1483,221 @@ p {
 }
 
 /* ---------- 14. Run Button + Progress ---------- */
-.run-btn-wrapper {
+/* ---------- Run Daily Modal (frosted glass + SSE live progress) ---------- */
+body.rd-lock { overflow: hidden; }
+
+.rd-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 9, 10, 0.5);
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  opacity: 0;
+  transition: opacity 0.24s ease;
+}
+.rd-overlay.rd-show { opacity: 1; }
+
+[data-theme="light"] .rd-overlay { background: rgba(120, 124, 132, 0.28); }
+
+.rd-modal {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  padding: 34px 30px 24px;
+  border-radius: 20px;
+  text-align: center;
+  color: var(--text-primary);
+  background: linear-gradient(160deg, rgba(34, 35, 39, 0.82), rgba(20, 21, 23, 0.78));
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(26px) saturate(140%);
+  -webkit-backdrop-filter: blur(26px) saturate(140%);
+  transform: translateY(14px) scale(0.96);
+  opacity: 0;
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.24s ease;
+}
+.rd-overlay.rd-show .rd-modal { transform: translateY(0) scale(1); opacity: 1; }
+
+[data-theme="light"] .rd-modal {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(247, 248, 248, 0.84));
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
-.run-progress {
-  display: none;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
+.rd-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
   color: var(--text-tertiary);
+  font-size: 15px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.rd-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.rd-icon {
+  font-size: 40px;
+  line-height: 1;
+  margin-bottom: 12px;
+  animation: rd-float 3s ease-in-out infinite;
+}
+@keyframes rd-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
 }
 
-.run-progress.active {
+.rd-title { font-size: 19px; font-weight: 600; margin: 0 0 8px; }
+.rd-desc {
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  margin: 0 0 22px;
+}
+.rd-desc b { color: var(--text-primary); font-weight: 600; }
+
+/* ---- progress block ---- */
+.rd-progress { margin: 6px 0 20px; }
+
+.rd-spinner {
+  position: relative;
+  width: 60px;
+  height: 60px;
+  margin: 0 auto 14px;
+}
+.rd-spinner span {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 3px solid transparent;
+}
+.rd-spinner span:nth-child(1) {
+  border-top-color: var(--accent-violet);
+  animation: spin 0.9s linear infinite;
+}
+.rd-spinner span:nth-child(2) {
+  inset: 11px;
+  border-bottom-color: var(--brand-indigo);
+  animation: spin 1.4s linear infinite reverse;
+}
+
+.rd-phase {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 14px;
+  min-height: 20px;
+}
+
+.rd-bar {
+  position: relative;
+  height: 8px;
+  border-radius: 99px;
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+.rd-bar-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--brand-indigo), var(--accent-violet));
+  transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  position: relative;
+  overflow: hidden;
+}
+.rd-bar-fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  transform: translateX(-100%);
+  animation: rd-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes rd-shimmer { to { transform: translateX(100%); } }
+
+.rd-pct {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 8px 0 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rd-steps {
   display: flex;
+  justify-content: space-between;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.rd-steps li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-quaternary);
+  flex: 1;
+  transition: color 0.3s ease;
+}
+.rd-steps .rd-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg-hover);
+  border: 2px solid var(--border-strong);
+  transition: all 0.3s ease;
+}
+.rd-steps li.active { color: var(--accent-violet); }
+.rd-steps li.active .rd-dot {
+  background: var(--accent-violet);
+  border-color: var(--accent-violet);
+  box-shadow: 0 0 0 4px rgba(113, 112, 255, 0.18);
+  animation: rd-pulse 1.2s ease-in-out infinite;
+}
+.rd-steps li.done { color: var(--success); }
+.rd-steps li.done .rd-dot {
+  background: var(--success);
+  border-color: var(--success);
+}
+@keyframes rd-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(113, 112, 255, 0.12); }
+  50% { box-shadow: 0 0 0 6px rgba(113, 112, 255, 0.26); }
 }
 
-.run-progress .spinner {
-  width: 16px;
-  height: 16px;
-  border-width: 2px;
-}
-
-.run-result {
-  display: none;
-  margin-top: 12px;
-  padding: 16px 20px;
+/* ---- result banner ---- */
+.rd-result {
+  margin: 4px 0 20px;
+  padding: 14px 16px;
   border-radius: var(--radius-md);
   font-size: 13px;
   line-height: 1.6;
+  text-align: left;
 }
-
-.run-result.success {
-  display: block;
-  background: rgba(39, 166, 68, 0.08);
-  border: 1px solid rgba(39, 166, 68, 0.2);
+.rd-result.success {
+  background: rgba(39, 166, 68, 0.1);
+  border: 1px solid rgba(39, 166, 68, 0.25);
   color: var(--success);
 }
-
-.run-result.error {
-  display: block;
-  background: rgba(248, 81, 73, 0.08);
-  border: 1px solid rgba(248, 81, 73, 0.2);
+.rd-result.error {
+  background: rgba(248, 81, 73, 0.1);
+  border: 1px solid rgba(248, 81, 73, 0.25);
   color: var(--danger);
 }
+
+.rd-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+.rd-actions .btn { min-width: 104px; }
 
 /* ---------- 15. Trend Tabs ---------- */
 .source-tabs {

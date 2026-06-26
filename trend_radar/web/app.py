@@ -387,6 +387,64 @@ async def trigger_collect(auth: bool = Depends(require_auth)) -> dict:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/trigger/daily/stream")
+async def trigger_daily_stream(auth: bool = Depends(require_auth)):
+    """以 SSE 流式返回日报进度。每个步骤一条事件，结束发送 done / error。"""
+    import asyncio
+    import json as _json
+
+    from starlette.responses import StreamingResponse
+
+    from trend_radar.scheduler import run_daily
+
+    queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+
+    def on_progress(step: int, total: int, label: str) -> None:
+        # run_daily 跑在独立线程里，用 call_soon_threadsafe 把进度推回主事件循环的队列
+        loop.call_soon_threadsafe(
+            queue.put_nowait,
+            {"type": "progress", "step": step, "total": total, "label": label},
+        )
+
+    async def worker() -> None:
+        try:
+            # run_daily 内含大量同步 CPU/IO 步骤，放到线程里跑，避免阻塞事件循环、
+            # 保证进度事件能实时 flush 给前端。
+            report = await asyncio.to_thread(
+                lambda: asyncio.run(run_daily(progress=on_progress))
+            )
+            queue.put_nowait(
+                {
+                    "type": "done",
+                    "date": report.date,
+                    "hot_topics": len(report.analysis.hot_topics),
+                    "suggestions": len(report.suggestions),
+                }
+            )
+        except Exception as e:  # noqa: BLE001
+            queue.put_nowait({"type": "error", "detail": str(e)})
+        finally:
+            queue.put_nowait(None)  # 结束哨兵
+
+    async def event_gen():
+        task = asyncio.create_task(worker())
+        try:
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                yield f"data: {_json.dumps(item, ensure_ascii=False)}\n\n"
+        finally:
+            await task
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 def main() -> None:
     cfg = get_config()["web"]
     uvicorn.run(

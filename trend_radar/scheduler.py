@@ -56,8 +56,20 @@ async def run_collect_all() -> list:
     return all_items
 
 
-async def run_daily() -> DailyReport:
-    """执行完整的日报流程：采集 → 分析 → 生成建议 → 推送。"""
+async def run_daily(progress=None) -> DailyReport:
+    """执行完整的日报流程：采集 → 分析 → 生成建议 → 推送。
+
+    progress: 可选回调 (step:int, total:int, label:str)，用于向前端实时上报进度。
+    """
+    total = 5
+
+    def _emit(step: int, label: str) -> None:
+        if progress is not None:
+            try:
+                progress(step, total, label)
+            except Exception:  # 进度上报失败不应中断主流程
+                pass
+
     date_str = datetime.now().strftime("%Y-%m-%d")
     logger.info(f"===== TrendRadar 日报开始 {date_str} =====")
 
@@ -66,12 +78,14 @@ async def run_daily() -> DailyReport:
 
     # 1. 采集
     logger.info("Step 1/5: 数据采集...")
+    _emit(1, "采集数据")
     items = await run_collect_all()
     logger.info(f"共采集 {len(items)} 条数据")
     db.save_trend_items(items, date_str)
 
     # 2. 分析
     logger.info("Step 2/5: 趋势分析...")
+    _emit(2, "趋势分析")
     analysis = analyze_trends(items, date_str)
     db.save_analysis(
         date_str,
@@ -83,6 +97,7 @@ async def run_daily() -> DailyReport:
 
     # 3. 生成建议
     logger.info("Step 3/5: 项目建议生成...")
+    _emit(3, "生成项目建议")
     n = get_config()["generator"]["daily_suggestions"]
     try:
         suggestions = generate_suggestions(analysis, n)
@@ -101,6 +116,7 @@ async def run_daily() -> DailyReport:
 
     # 4. 生成报告
     logger.info("Step 4/5: 报告生成...")
+    _emit(4, "生成报告")
     report = DailyReport(date=date_str, analysis=analysis, suggestions=suggestions)
     report.markdown = render_daily_report_markdown(report)
 
@@ -112,6 +128,7 @@ async def run_daily() -> DailyReport:
 
     # 5. 推送
     logger.info("Step 5/5: 推送...")
+    _emit(5, "推送 / 同步")
     summary = render_message_summary(report)
     send_telegram(summary)
     send_qq(summary)

@@ -258,13 +258,10 @@ async function loadDashboard() {
       <div class="page-subtitle">今日趋势概览与项目推荐</div>
     </div>
     <div class="page-header-actions">
-      <div class="run-btn-wrapper">
-        <button class="btn btn-primary btn-sm" id="run-daily-btn" onclick="handleRunDaily(event)">▶ 立即运行日报</button>
-        <div class="run-progress" id="run-progress"><span class="spinner"></span><span class="run-phase">采集中...</span></div>
-      </div>
+      <button class="btn btn-primary btn-sm" id="run-daily-btn" onclick="handleRunDaily(event)">▶ 立即运行日报</button>
       <button class="btn btn-ghost btn-sm" onclick="Auth.logout()">登出</button>
     </div>
-  </div><div class="page-enter" id="page-body"><div id="run-result" class="run-result" style="display:none;"></div>${loadingHTML('正在加载最新报告…')}</div>`;
+  </div><div class="page-enter" id="page-body">${loadingHTML('正在加载最新报告…')}</div>`;
 
   try {
     const [report, stats, dates] = await Promise.all([
@@ -1272,63 +1269,175 @@ function initLogoutButtons() {
 }
 
 /* ============================================================
-   12. Trigger Daily (Run Now button)
+   12. Trigger Daily — frosted-glass modal + SSE live progress
    ============================================================ */
+
+let _runModalRunning = false;
 
 function handleRunDaily(event) {
   if (event) event.preventDefault();
-  const btn = document.getElementById('run-daily-btn');
-  const progressEl = document.getElementById('run-progress');
-  const resultEl = document.getElementById('run-result');
-  if (!btn || !progressEl || !resultEl) return;
-  triggerDaily(progressEl, resultEl, btn);
+  openRunModal();
 }
 
-async function triggerDaily(progressEl, resultEl, btn) {
-  btn.disabled = true;
-  btn.textContent = '运行中...';
-  progressEl.classList.add('active');
-  resultEl.className = 'run-result';
-  resultEl.style.display = 'none';
+/** Build and show the centered frosted-glass modal in its confirm state. */
+function openRunModal() {
+  removeRunModal();
 
-  const phases = ['采集中...', '分析中...', '生成建议中...', '完成'];
-  let phaseIdx = 0;
-  progressEl.querySelector('.run-phase').textContent = phases[0];
-  const phaseTimer = setInterval(() => {
-    phaseIdx = Math.min(phaseIdx + 1, phases.length - 2);
-    progressEl.querySelector('.run-phase').textContent = phases[phaseIdx];
-  }, 8000);
+  const overlay = document.createElement('div');
+  overlay.className = 'rd-overlay';
+  overlay.id = 'rd-overlay';
+  overlay.innerHTML = `
+    <div class="rd-modal" role="dialog" aria-modal="true" aria-labelledby="rd-title">
+      <button class="rd-close" id="rd-close" aria-label="关闭">✕</button>
+      <div class="rd-icon">🔭</div>
+      <h3 class="rd-title" id="rd-title">立即运行日报</h3>
+      <p class="rd-desc" id="rd-desc">将执行完整日报流程：<b>采集 → 分析 → 建议 → 报告 → 推送</b>。<br>整个过程约需数分钟，运行期间请保持页面打开。</p>
+
+      <div class="rd-progress" id="rd-progress" hidden>
+        <div class="rd-spinner"><span></span><span></span></div>
+        <div class="rd-phase" id="rd-phase">准备中…</div>
+        <div class="rd-bar"><div class="rd-bar-fill" id="rd-bar-fill"></div></div>
+        <div class="rd-pct" id="rd-pct">0%</div>
+        <ol class="rd-steps" id="rd-steps">
+          <li data-step="1"><span class="rd-dot"></span><em>采集</em></li>
+          <li data-step="2"><span class="rd-dot"></span><em>分析</em></li>
+          <li data-step="3"><span class="rd-dot"></span><em>建议</em></li>
+          <li data-step="4"><span class="rd-dot"></span><em>报告</em></li>
+          <li data-step="5"><span class="rd-dot"></span><em>推送</em></li>
+        </ol>
+      </div>
+
+      <div class="rd-result" id="rd-result" hidden></div>
+
+      <div class="rd-actions" id="rd-actions">
+        <button class="btn btn-ghost" id="rd-cancel">取消</button>
+        <button class="btn btn-primary" id="rd-confirm">确认运行</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+  document.body.classList.add('rd-lock');
+  requestAnimationFrame(() => overlay.classList.add('rd-show'));
+
+  _runModalRunning = false;
+  document.getElementById('rd-confirm').addEventListener('click', startRunDaily);
+  document.getElementById('rd-cancel').addEventListener('click', closeRunModal);
+  document.getElementById('rd-close').addEventListener('click', closeRunModal);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeRunModal(); });
+  document.addEventListener('keydown', _runModalKeydown);
+}
+
+function _runModalKeydown(e) {
+  if (e.key === 'Escape') closeRunModal();
+}
+
+/** Close guarded by running state — the modal must stay open while a run is in flight. */
+function closeRunModal() {
+  if (_runModalRunning) return;
+  removeRunModal();
+}
+
+function removeRunModal() {
+  const overlay = document.getElementById('rd-overlay');
+  if (!overlay) return;
+  document.removeEventListener('keydown', _runModalKeydown);
+  document.body.classList.remove('rd-lock');
+  overlay.classList.remove('rd-show');
+  setTimeout(() => overlay.remove(), 240);
+}
+
+/** Confirmed — keep the modal open and stream live progress over SSE. */
+async function startRunDaily() {
+  const $ = (id) => document.getElementById(id);
+  const confirmBtn = $('rd-confirm');
+  const cancelBtn = $('rd-cancel');
+  const closeBtn = $('rd-close');
+  const phaseEl = $('rd-phase');
+  const fillEl = $('rd-bar-fill');
+  const pctEl = $('rd-pct');
+  const resultEl = $('rd-result');
+  const stepsEl = $('rd-steps');
+
+  _runModalRunning = true;
+  $('rd-desc').hidden = true;
+  $('rd-progress').hidden = false;
+  resultEl.hidden = true;
+  confirmBtn.style.display = 'none';
+  closeBtn.style.display = 'none';
+  cancelBtn.disabled = true;
+  cancelBtn.textContent = '运行中…';
+
+  const setStep = (step, total, label) => {
+    phaseEl.textContent = `步骤 ${step}/${total} · ${label}`;
+    const pct = Math.round(((step - 1) / total) * 100);
+    fillEl.style.width = pct + '%';
+    pctEl.textContent = pct + '%';
+    stepsEl.querySelectorAll('li').forEach((li) => {
+      const s = Number(li.dataset.step);
+      li.classList.toggle('done', s < step);
+      li.classList.toggle('active', s === step);
+    });
+  };
+
+  const finish = (ok, html) => {
+    _runModalRunning = false;
+    resultEl.hidden = false;
+    resultEl.className = 'rd-result ' + (ok ? 'success' : 'error');
+    resultEl.innerHTML = html;
+    cancelBtn.style.display = 'none';
+    closeBtn.style.display = '';
+    // Re-purpose the primary button as a clean "完成/关闭" (strip the old confirm listener).
+    const fresh = confirmBtn.cloneNode(true);
+    fresh.style.display = '';
+    fresh.textContent = ok ? '完成' : '关闭';
+    confirmBtn.parentNode.replaceChild(fresh, confirmBtn);
+    fresh.addEventListener('click', removeRunModal);
+  };
 
   try {
-    const result = await fetchWithAuth(`${API}/trigger/daily`, { method: 'POST' });
-    clearInterval(phaseTimer);
-    progressEl.classList.remove('active');
-    progressEl.querySelector('.run-phase').textContent = '';
+    const token = Auth.getToken();
+    const resp = await fetch(`${API}/trigger/daily/stream`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (resp.status === 401) { Auth.clearToken(); window.location.href = '/login'; return; }
+    if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);
 
-    if (result.status === 'ok') {
-      resultEl.className = 'run-result success';
-      resultEl.style.display = 'block';
-      resultEl.innerHTML = `✅ 日报生成成功！日期: <strong>${esc(result.date)}</strong> · 热点: ${result.hot_topics} · 建议: ${result.suggestions}`;
-      btn.textContent = '✓ 完成';
-      btn.className = 'btn btn-ghost btn-sm';
-      setTimeout(() => {
-        btn.disabled = false;
-        btn.textContent = '▶ 立即运行日报';
-        btn.className = 'btn btn-primary btn-sm';
-      }, 3000);
-      /* Reload dashboard data to show fresh results */
-      setTimeout(() => loadDashboard(), 1500);
-    } else {
-      throw new Error(result.detail || '未知错误');
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let settled = false;
+
+    while (!settled) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) !== -1) {
+        const raw = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 2);
+        if (!raw.startsWith('data:')) continue;
+        let evt;
+        try { evt = JSON.parse(raw.slice(5).trim()); } catch (_) { continue; }
+
+        if (evt.type === 'progress') {
+          setStep(evt.step, evt.total, evt.label);
+        } else if (evt.type === 'done') {
+          fillEl.style.width = '100%';
+          pctEl.textContent = '100%';
+          stepsEl.querySelectorAll('li').forEach((li) => { li.classList.remove('active'); li.classList.add('done'); });
+          phaseEl.textContent = '✓ 全部完成';
+          finish(true, `✅ 日报生成成功！<br>日期 <strong>${esc(evt.date)}</strong> · 热点 ${esc(evt.hot_topics)} · 建议 ${esc(evt.suggestions)}`);
+          settled = true;
+          loadDashboard();
+        } else if (evt.type === 'error') {
+          finish(false, `❌ 运行失败：${esc(evt.detail || '未知错误')}`);
+          settled = true;
+        }
+      }
     }
+    if (!settled) finish(false, '❌ 运行中断：与服务器的连接意外结束');
   } catch (e) {
-    clearInterval(phaseTimer);
-    progressEl.classList.remove('active');
-    progressEl.querySelector('.run-phase').textContent = '';
-    resultEl.className = 'run-result error';
-    resultEl.style.display = 'block';
-    resultEl.textContent = `❌ 运行失败: ${e.message}`;
-    btn.disabled = false;
-    btn.textContent = '▶ 立即运行日报';
+    finish(false, `❌ 运行失败：${esc(e.message)}`);
   }
 }
