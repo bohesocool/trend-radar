@@ -138,6 +138,8 @@ def get_suggestion(suggestion_id: int) -> dict[str, Any]:
     full["id"] = row["id"]
     full["date"] = row["date"]
     full["pinned"] = bool(row.get("pinned"))
+    if full.get("project_doc"):
+        full["project_doc_html"] = markdown_to_html(full["project_doc"])
     return full
 
 
@@ -216,10 +218,17 @@ def gen_suggestion_readme(suggestion_id: int, auth: bool = Depends(require_auth)
     return _generate_and_store(suggestion_id, "readme")
 
 
+@router.post("/suggestion/{suggestion_id}/project-doc")
+def gen_suggestion_project_doc(suggestion_id: int, auth: bool = Depends(require_auth)) -> dict[str, Any]:
+    """按需生成完整项目文档（Markdown），存回 full_data 并返回 md + html。"""
+    return _generate_and_store(suggestion_id, "project_doc")
+
+
 def _generate_and_store(suggestion_id: int, kind: str) -> dict[str, Any]:
     from trend_radar.generator.suggestion_engine import (
         _parse_suggestion,
         generate_architecture,
+        generate_project_doc,
         generate_readme_strategy,
     )
 
@@ -232,14 +241,24 @@ def _generate_and_store(suggestion_id: int, kind: str) -> dict[str, Any]:
     try:
         if kind == "architecture":
             generated = generate_architecture(suggestion)
-        else:
+            full.update(generated)
+            db.update_suggestion_full_data(suggestion_id, full)
+            return generated
+        if kind == "readme":
             generated = generate_readme_strategy(suggestion)
+            full.update(generated)
+            db.update_suggestion_full_data(suggestion_id, full)
+            return generated
+        if kind == "project_doc":
+            # 把已生成的 architecture / readme 等作为上下文喂给 AI，由其统筹重写进整篇文档
+            md = generate_project_doc(suggestion, full)
+            full["project_doc"] = md
+            db.update_suggestion_full_data(suggestion_id, full)
+            return {"project_doc": md, "project_doc_html": markdown_to_html(md)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"生成失败: {e}")
 
-    full.update(generated)
-    db.update_suggestion_full_data(suggestion_id, full)
-    return generated
+    raise HTTPException(status_code=400, detail=f"未知生成类型: {kind}")
 
 
 @router.get("/trends/{date}")
