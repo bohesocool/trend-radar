@@ -7,11 +7,42 @@ import json
 from datetime import datetime
 from typing import Any
 
+import markdown as md_lib
+from markdown.extensions import Extension
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from trend_radar import db
 from trend_radar.web.auth import require_auth
+
+
+class _EscapeHtml(Extension):
+    """移除 Markdown 的 raw-HTML 处理器，使原始 HTML 被转义而非透传。
+
+    Python-Markdown 默认会原样保留 <script> 等标签（safe_mode 已废弃），
+    上游文档推荐用此类删除 html_block 预处理器与 html 行内处理器来实现转义。
+    """
+
+    def extendMarkdown(self, md):
+        md.preprocessors.deregister("html_block")
+        md.inlinePatterns.deregister("html")
+
+
+def markdown_to_html(md_text: str | None) -> str:
+    """把 Markdown 文本渲染成安全 HTML（启用 fenced_code 与 tables 扩展）。
+
+    通过 _EscapeHtml 扩展转义原始 HTML，因此不会产出 <script> 等可执行标签。
+    用于详情页「完整项目文档」的在线预览。
+    """
+    if not md_text:
+        return ""
+    return md_lib.markdown(
+        md_text,
+        extensions=["fenced_code", "tables", "nl2br", _EscapeHtml()],
+        output_format="html",
+    )
+
 
 router = APIRouter(prefix="/api")
 

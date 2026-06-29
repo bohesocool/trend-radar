@@ -20,3 +20,4 @@ openai>=1.30
 # Utils
 python-dotenv>=1.0
 feedparser>=6.0      # arXiv RSS / Reddit RSS
+markdown>=3.4        # 项目文档 Markdown → HTML 渲染
