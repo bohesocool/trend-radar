@@ -89,6 +89,9 @@ class ProjectSuggestion:
     readme_strategy: str = ""
     naming_tips: str = ""
 
+    # 完整项目文档（纯 Markdown，按需生成，存于 full_data）
+    project_doc: str = ""
+
 
 @dataclass
 class DailyReport:

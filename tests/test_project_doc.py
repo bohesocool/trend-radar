@@ -1,6 +1,7 @@
 """项目文档生成相关单元测试（纯逻辑，不碰 DB / 鉴权 / 真 LLM）。"""
 
 from trend_radar.web.api import markdown_to_html
+from trend_radar.generator.suggestion_engine import _parse_suggestion
 
 
 def test_markdown_to_html_renders_headings_lists_code():
@@ -43,3 +44,13 @@ def test_markdown_to_html_keeps_safe_links():
 def test_markdown_to_html_empty_input():
     assert markdown_to_html("") == ""
     assert markdown_to_html(None) == ""
+
+
+def test_parse_suggestion_reads_project_doc():
+    s = _parse_suggestion({"name": "foo", "project_doc": "# Hello"})
+    assert s.project_doc == "# Hello"
+
+
+def test_parse_suggestion_project_doc_defaults_empty():
+    s = _parse_suggestion({"name": "foo"})
+    assert s.project_doc == ""
