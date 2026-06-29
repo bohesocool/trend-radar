@@ -95,6 +95,7 @@ def get_settings() -> dict[str, Any]:
     # Collectors
     collectors = cfg.get("collectors", {})
     generator = cfg.get("generator", {})
+    scheduler = cfg.get("scheduler", {})
 
     return {
         "ai": {
@@ -110,12 +111,19 @@ def get_settings() -> dict[str, Any]:
             "reddit_subreddits": collectors.get("reddit", {}).get("subreddits", []),
             "twitter_enabled": collectors.get("twitter", {}).get("enabled", False),
         },
+        "scheduler": {
+            "daily_enabled": scheduler.get("daily", {}).get("enabled", True),
+            "daily_cron": scheduler.get("daily", {}).get("cron", "0 8 * * *"),
+            "weekly_enabled": scheduler.get("weekly", {}).get("enabled", True),
+            "weekly_cron": scheduler.get("weekly", {}).get("cron", "0 9 * * 1"),
+        },
     }
 
 
 class SettingsUpdate(BaseModel):
     ai: dict[str, str] | None = None
     collect: dict[str, Any] | None = None
+    scheduler: dict[str, Any] | None = None
 
 
 @router.post("/settings")
@@ -159,9 +167,31 @@ def update_settings(req: SettingsUpdate) -> dict[str, str]:
         if "twitter_enabled" in req.collect:
             collectors.setdefault("twitter", {})["enabled"] = bool(req.collect["twitter_enabled"])
 
+    # Update scheduler config → config.yaml (改完热重载，无需重启)
+    if req.scheduler:
+        sched_cfg = cfg.setdefault("scheduler", {})
+        daily = sched_cfg.setdefault("daily", {})
+        weekly = sched_cfg.setdefault("weekly", {})
+        if "daily_enabled" in req.scheduler:
+            daily["enabled"] = bool(req.scheduler["daily_enabled"])
+        if "daily_cron" in req.scheduler:
+            daily["cron"] = str(req.scheduler["daily_cron"])
+        if "weekly_enabled" in req.scheduler:
+            weekly["enabled"] = bool(req.scheduler["weekly_enabled"])
+        if "weekly_cron" in req.scheduler:
+            weekly["cron"] = str(req.scheduler["weekly_cron"])
+
     # Write files
     if env_updates:
         _write_env(env_updates)
     _write_yaml(cfg)
 
-    return {"status": "ok", "message": "配置已保存。需要重启容器生效。"}
+    # 定时调度热重载：重读 config 后刷新 APScheduler job
+    if req.scheduler:
+        from trend_radar.config import reload_config
+        from trend_radar.scheduler import reload_scheduler
+
+        reload_config()
+        reload_scheduler()
+
+    return {"status": "ok", "message": "配置已保存。AI/采集配置需重启容器生效，定时调度已即时生效。"}

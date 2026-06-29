@@ -189,3 +189,85 @@ def run_daily_sync():
 def run_weekly_sync():
     """周报同步入口。"""
     asyncio.run(run_weekly())
+
+
+# ===== 进程内 APScheduler 调度 =====
+# 随 Web 进程启动，读 config.yaml 的 scheduler 段到点触发日报/周报。
+# 设置页改完定时时间后调 reload_scheduler() 即时热重载，无需重启容器。
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+
+_SCHEDULER_TZ = "Asia/Shanghai"
+_scheduler: BackgroundScheduler | None = None
+
+
+def _cron_fields(cron: str) -> dict:
+    """把标准 5 段 cron '0 8 * * *' 拆成 CronTrigger 关键字参数。
+
+    顺序: minute hour day month day_of_week
+    """
+    parts = cron.split()
+    if len(parts) != 5:
+        raise ValueError(f"非法 cron 表达式 (应为 5 段): {cron}")
+    keys = ["minute", "hour", "day", "month", "day_of_week"]
+    return dict(zip(keys, parts))
+
+
+def _apply_jobs(sched: BackgroundScheduler) -> None:
+    """按当前 config 注册/刷新 daily、weekly 两个 job。"""
+    cfg = get_config().get("scheduler", {})
+    daily = cfg.get("daily", {})
+    weekly = cfg.get("weekly", {})
+    if daily.get("enabled", True):
+        sched.add_job(
+            run_daily_sync,
+            CronTrigger(timezone=_SCHEDULER_TZ, **_cron_fields(daily.get("cron", "0 8 * * *"))),
+            id="daily",
+            replace_existing=True,
+        )
+    if weekly.get("enabled", True):
+        sched.add_job(
+            run_weekly_sync,
+            CronTrigger(timezone=_SCHEDULER_TZ, **_cron_fields(weekly.get("cron", "0 9 * * 1"))),
+            id="weekly",
+            replace_existing=True,
+        )
+
+
+def _remove_disabled(sched: BackgroundScheduler) -> None:
+    """移除已被关闭 (enabled=False) 的 job。"""
+    cfg = get_config().get("scheduler", {})
+    for job_id in ("daily", "weekly"):
+        if not cfg.get(job_id, {}).get("enabled", True):
+            try:
+                sched.remove_job(job_id)
+            except Exception:  # job 不存在则忽略
+                pass
+
+
+def start_scheduler() -> None:
+    """Web 启动时调用一次：创建并启动 BackgroundScheduler，注册 cron job。"""
+    global _scheduler
+    if _scheduler is not None:
+        return
+    sched = BackgroundScheduler(timezone=_SCHEDULER_TZ)
+    _apply_jobs(sched)
+    sched.start()
+    _scheduler = sched
+    logger.info(
+        f"APScheduler 已启动 (tz={_SCHEDULER_TZ})，已注册 job: "
+        f"{[j.id for j in sched.get_jobs()]}"
+    )
+
+
+def reload_scheduler() -> None:
+    """设置页保存后调用：按最新 config 重新排 job，立即生效。"""
+    if _scheduler is None:
+        return
+    _apply_jobs(_scheduler)  # replace_existing=True 会覆盖已有 job 的 trigger
+    _remove_disabled(_scheduler)
+    logger.info(
+        f"APScheduler 已热重载，当前 job: "
+        f"{[(j.id, str(j.trigger)) for j in _scheduler.get_jobs()]}"
+    )

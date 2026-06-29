@@ -70,6 +70,11 @@ from trend_radar import db as _db
 
 _db.init_db()
 
+# 启动进程内 APScheduler，到点自动跑日报/周报 (config.scheduler 段控制)
+from trend_radar.scheduler import start_scheduler
+
+start_scheduler()
+
 
 # ===== 页面路由 (HTML 不缓存，但静态资源引用带版本号) =====
 

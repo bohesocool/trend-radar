@@ -1176,6 +1176,25 @@ window.genReadme = function(btn) { _genSection(btn, 'readme'); };
    8b. Settings Page
    ============================================================ */
 
+// '0 8 * * *' → '08:00'；解析失败返回 '08:00'
+function cronToTime(cron) {
+  if (!cron) return '08:00';
+  const p = cron.split(/\s+/);
+  if (p.length !== 5) return '08:00';
+  const m = p[0].padStart(2, '0');
+  const h = p[1].padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+// '0 9 * * 1' → 1 (周一)；周日用 0；解析失败返回 1
+function cronToWeeklyDay(cron) {
+  if (!cron) return 1;
+  const p = cron.split(/\s+/);
+  if (p.length !== 5) return 1;
+  const d = parseInt(p[4], 10);
+  return isNaN(d) ? 1 : d;
+}
+
 async function loadSettings() {
   if (Auth.requireAuth()) return;
 
@@ -1186,6 +1205,7 @@ async function loadSettings() {
     const settings = await getJSON('/settings');
     const ai = settings.ai || {};
     const collect = settings.collect || {};
+    const sched = settings.scheduler || {};
 
     const githubLangs = (collect.github_languages || ['python']).join(', ');
     const arxivCats = (collect.arxiv_categories || ['cs.AI', 'cs.CL', 'cs.LG']).join(', ');
@@ -1250,6 +1270,48 @@ async function loadSettings() {
               <span style="font-size:13px; color:var(--text-tertiary);">开启后从 RSSHub 采集 Twitter AI 资讯</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">定时调度</div>
+        <div class="settings-section-desc">日报 / 周报的自动运行时间。保存后即时生效，无需重启容器。</div>
+        <div class="settings-form">
+          <div class="form-field">
+            <label>日报自动运行</label>
+            <div style="display:flex; align-items:center; gap:12px;">
+              <label class="toggle-switch">
+                <input type="checkbox" id="setting-daily-enabled" ${sched.daily_enabled ? 'checked' : ''}>
+                <span class="toggle-slider"></span>
+              </label>
+              <span style="font-size:13px; color:var(--text-tertiary);">关闭后不再自动跑日报</span>
+            </div>
+          </div>
+          <div class="form-field">
+            <label>日报运行时间</label>
+            <input type="time" id="setting-daily-time" value="${esc(cronToTime(sched.daily_cron))}">
+            <div class="form-hint">每天此时间自动采集并生成日报</div>
+          </div>
+          <div class="form-field">
+            <label>周报自动运行</label>
+            <div style="display:flex; align-items:center; gap:12px;">
+              <label class="toggle-switch">
+                <input type="checkbox" id="setting-weekly-enabled" ${sched.weekly_enabled ? 'checked' : ''}>
+                <span class="toggle-slider"></span>
+              </label>
+              <span style="font-size:13px; color:var(--text-tertiary);">关闭后不再自动跑周报</span>
+            </div>
+          </div>
+          <div class="form-field">
+            <label>周报运行时间</label>
+            <div style="display:flex; gap:8px;">
+              <select id="setting-weekly-day" style="width:auto;">
+                ${['日','一','二','三','四','五','六'].map((d, i) => `<option value="${i}" ${cronToWeeklyDay(sched.weekly_cron) === i ? 'selected' : ''}>周${d}</option>`).join('')}
+              </select>
+              <input type="time" id="setting-weekly-time" value="${esc(cronToTime(sched.weekly_cron))}" style="flex:1;">
+            </div>
+            <div class="form-hint">每周此星期此时间生成周报</div>
+          </div>
           <div class="form-actions">
             <button class="btn btn-primary" onclick="saveSettings()">保存配置</button>
             <span class="settings-save-msg" id="settings-msg"></span>
@@ -1279,6 +1341,15 @@ async function saveSettings() {
   const redditSubs = document.getElementById('setting-reddit-subs')?.value?.split(',').map((s) => s.trim()).filter(Boolean) || [];
   const twitterEnabled = document.getElementById('setting-twitter-enabled')?.checked || false;
 
+  // 定时调度：把 time + weekday 组装成 5 段 cron (分 时 * * 周)
+  const dailyEnabled = document.getElementById('setting-daily-enabled')?.checked || false;
+  const dailyTime = document.getElementById('setting-daily-time')?.value || '08:00';
+  const [dh, dm] = dailyTime.split(':');
+  const weeklyEnabled = document.getElementById('setting-weekly-enabled')?.checked || false;
+  const weeklyDay = document.getElementById('setting-weekly-day')?.value ?? '1';
+  const weeklyTime = document.getElementById('setting-weekly-time')?.value || '09:00';
+  const [wh, wm] = weeklyTime.split(':');
+
   const payload = {
     ai: { api_base: apiBase, api_key: apiKey, model: model },
     collect: {
@@ -1288,6 +1359,12 @@ async function saveSettings() {
       arxiv_categories: arxivCats,
       reddit_subreddits: redditSubs,
       twitter_enabled: twitterEnabled,
+    },
+    scheduler: {
+      daily_enabled: dailyEnabled,
+      daily_cron: `${dm || '0'} ${dh || '8'} * * *`,
+      weekly_enabled: weeklyEnabled,
+      weekly_cron: `${wm || '0'} ${wh || '9'} * * ${weeklyDay}`,
     },
   };
 

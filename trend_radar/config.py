@@ -48,5 +48,13 @@ def get_config() -> dict[str, Any]:
     return _config
 
 
+def reload_config() -> dict[str, Any]:
+    """重新从磁盘加载配置 (清空单例缓存)。设置页写完 config.yaml 后调用，
+    使后续读取拿到最新值。"""
+    global _config
+    _config = load_config()
+    return _config
+
+
 def get_project_root() -> Path:
     return _PROJECT_ROOT
