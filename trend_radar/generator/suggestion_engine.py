@@ -323,3 +323,109 @@ def _parse_suggestion(data: dict[str, Any]) -> ProjectSuggestion:
         naming_tips=data.get("naming_tips", ""),
         project_doc=data.get("project_doc", ""),
     )
+
+
+# ===== 完整项目文档（按需生成，直接交付 AI 编码助手） =====
+
+_PROJECT_DOC_SYSTEM_PROMPT = """你是一名资深软件架构师 + 技术文档作者。
+基于给定的项目建议，输出一份完整、可落地的项目文档（Markdown 格式），详细到能直接交给 Claude Code / Codex 这类 AI 编码助手据此搭建整个项目。
+
+直接输出 Markdown 正文，不要包裹在 ``` 代码块里，也不要输出任何 JSON 或额外解释。"""
+
+_PROJECT_DOC_USER_TEMPLATE = """为以下项目撰写完整项目文档。
+
+【项目建议】
+- 名称：{name}
+- 一句话：{tagline}
+- 分类：{category}
+- 描述：{description}
+- 目标用户：{target_audience}
+- 技术栈：{tech_stack}
+- 核心功能：{key_features}
+- MVP 功能：{mvp_features}
+- 时间线：{timeline}
+{existing_context}
+
+文档必须包含以下章节，每节都要具体、可执行：
+
+## 1. 项目概述
+一句话定位、解决什么问题、目标用户是谁、为什么现在做。
+
+## 2. 核心功能模块
+逐个列出每个功能模块，每个模块写明：
+- 模块名称
+- 职责（这个模块负责什么）
+- 做什么（具体行为 / 关键流程）
+- 输入 / 输出
+- 依赖哪些其他模块
+
+## 3. 技术架构
+模块如何划分与组合、数据流向、关键技术选型与理由。
+
+## 4. 目录结构
+用带注释的目录树表示，可直接照着建仓库。
+
+## 5. 数据模型 / 关键接口
+核心数据结构、对外接口（CLI 命令 / API 路径 / 函数签名），给出示例。
+
+## 6. 技术栈
+逐项列出依赖及其用途。
+
+## 7. MVP 实现计划
+分里程碑，每步给出交付物，先做什么后做什么。
+
+## 8. README 要点 & 命名建议
+首行 tagline、安装命令、使用示例、对比表格位置；命名是否合适及备选名。
+
+## 9. 给 AI 编码助手的执行指引
+写给 Claude Code / Codex：如何启动这个项目、第一步先实现哪块、有哪些注意事项与约定。"""
+
+
+def _build_project_doc_prompt(suggestion: ProjectSuggestion, existing_context: dict[str, str]) -> str:
+    """拼装生成完整项目文档的 user prompt。
+
+    existing_context: full_data 中已存在的 architecture / repo_structure / readme_strategy /
+    naming_tips。有则作为参考喂给 AI（让文档与已生成内容保持一致），全为空则不附。
+    """
+    arch = (existing_context.get("architecture") or "").strip()
+    repo = (existing_context.get("repo_structure") or "").strip()
+    readme = (existing_context.get("readme_strategy") or "").strip()
+    naming = (existing_context.get("naming_tips") or "").strip()
+
+    parts: list[str] = []
+    if arch:
+        parts.append(f"已有架构参考：\n{arch}")
+    if repo:
+        parts.append(f"已有目录结构参考：\n{repo}")
+    if readme:
+        parts.append(f"已有 README 策略参考：\n{readme}")
+    if naming:
+        parts.append(f"已有命名建议参考：\n{naming}")
+    existing_block = ("\n" + "\n".join(parts) + "\n") if parts else ""
+
+    return _PROJECT_DOC_USER_TEMPLATE.format(
+        name=suggestion.name,
+        tagline=suggestion.tagline,
+        category=suggestion.category,
+        description=suggestion.description,
+        target_audience=suggestion.target_audience,
+        tech_stack=", ".join(suggestion.tech_stack),
+        key_features="、".join(suggestion.key_features),
+        mvp_features="、".join(suggestion.mvp_features),
+        timeline=suggestion.timeline,
+        existing_context=existing_block,
+    )
+
+
+def generate_project_doc(suggestion: ProjectSuggestion, existing_context: dict[str, str]) -> str:
+    """按需生成完整项目文档（纯 Markdown 字符串）。
+
+    走 llm.chat() 而非 chat_json()：Markdown 是纯文本，不需要也不应经过 JSON 解析，
+    从根上规避 JSON 截断 / _parse_json 兜底问题。
+
+    existing_context: full_data 中已生成的 architecture / readme 等字段，有则作为上下文。
+    """
+    llm = LLMClient()
+    prompt = _build_project_doc_prompt(suggestion, existing_context)
+    # 整篇文档较长，显式放宽输出上限，避免被默认值截断
+    return llm.chat(_PROJECT_DOC_SYSTEM_PROMPT, prompt, max_tokens=8000)

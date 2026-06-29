@@ -2,7 +2,9 @@
 
 from unittest.mock import MagicMock
 
+import trend_radar.generator.suggestion_engine as se
 from trend_radar.analyzer.llm_client import LLMClient
+from trend_radar.models import ProjectSuggestion
 from trend_radar.web.api import markdown_to_html
 from trend_radar.generator.suggestion_engine import _parse_suggestion
 
@@ -84,3 +86,56 @@ def test_chat_uses_default_max_tokens_when_omitted():
 
     _, kwargs = client.client.chat.completions.create.call_args
     assert kwargs["max_tokens"] == client.max_tokens
+
+
+_EMPTY_CTX = {"architecture": "", "repo_structure": "", "readme_strategy": "", "naming_tips": ""}
+
+
+def _suggestion():
+    return ProjectSuggestion(
+        name="trend-radar",
+        tagline="一句话亮点",
+        category="web",
+        description="项目描述",
+        tech_stack=["Python", "FastAPI"],
+        key_features=["功能A", "功能B"],
+        mvp_features=["MVP1"],
+        timeline="2-3天",
+        target_audience="开发者",
+    )
+
+
+def test_build_prompt_includes_name_and_features():
+    prompt = se._build_project_doc_prompt(_suggestion(), _EMPTY_CTX)
+    assert "trend-radar" in prompt
+    assert "功能A" in prompt
+    assert "核心功能模块" in prompt
+    assert "给 AI 编码助手的执行指引" in prompt
+
+
+def test_build_prompt_includes_existing_context_when_present():
+    ctx = {**_EMPTY_CTX, "architecture": "三层架构：采集层/分析层/展示层"}
+    prompt = se._build_project_doc_prompt(_suggestion(), ctx)
+    assert "三层架构：采集层/分析层/展示层" in prompt
+
+
+def test_build_prompt_omits_context_block_when_empty():
+    prompt = se._build_project_doc_prompt(_suggestion(), _EMPTY_CTX)
+    assert "已有架构参考" not in prompt
+
+
+def test_generate_project_doc_returns_chat_output(monkeypatch):
+    captured = {}
+
+    class FakeLLM:
+        def chat(self, system_prompt, user_prompt, max_retries=2, max_tokens=None):
+            captured["user"] = user_prompt
+            captured["max_tokens"] = max_tokens
+            return "# 项目文档\n\n## 核心功能模块\n..."
+
+    monkeypatch.setattr(se, "LLMClient", FakeLLM)
+
+    md = se.generate_project_doc(_suggestion(), _EMPTY_CTX)
+    assert md == "# 项目文档\n\n## 核心功能模块\n..."
+    assert "trend-radar" in captured["user"]
+    assert captured["max_tokens"] is not None
