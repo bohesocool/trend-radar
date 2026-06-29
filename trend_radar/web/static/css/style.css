@@ -2077,3 +2077,72 @@ body.rd-lock { overflow: hidden; }
   white-space: pre;
   overflow-x: auto;
 }
+
+/* ===== 完整项目文档 Markdown 渲染 ===== */
+.project-doc-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.markdown-body {
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+  color: var(--text-primary);
+  font-weight: 600;
+  margin: 20px 0 8px;
+  line-height: 1.4;
+}
+.markdown-body h1 { font-size: 20px; }
+.markdown-body h2 { font-size: 17px; }
+.markdown-body h3 { font-size: 15px; }
+.markdown-body p { margin: 8px 0; }
+.markdown-body ul,
+.markdown-body ol { margin: 8px 0; padding-left: 22px; }
+.markdown-body li { margin: 4px 0; }
+.markdown-body a { color: var(--brand-hover); text-decoration: none; }
+.markdown-body a:hover { text-decoration: underline; }
+.markdown-body code {
+  background: var(--surface-2, rgba(127, 127, 127, 0.12));
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+}
+.markdown-body pre {
+  background: var(--surface-2, rgba(127, 127, 127, 0.08));
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin: 10px 0;
+  overflow-x: auto;
+}
+.markdown-body pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre;
+}
+.markdown-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 10px 0;
+  font-size: 13px;
+}
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--border-default);
+  padding: 6px 10px;
+  text-align: left;
+}
+.markdown-body th { color: var(--text-primary); }
