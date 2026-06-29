@@ -1000,6 +1000,8 @@ function confirmGlass({ icon = '⚠️', title = '确认操作', desc = '', conf
    ============================================================ */
 
 let _detailSuggestionId = null;
+let _detailProjectDoc = '';      // 当前详情页已生成的项目文档原始 Markdown（供下载/复制）
+let _detailProjectDocName = '';  // 项目名（用于下载文件名）
 
 /** Render a text block that may contain ```fenced code``` — code → <pre>, text → <br>. */
 function renderTextBlock(text) {
@@ -1034,6 +1036,84 @@ function genSectionHTML(title, key1, key2, full, btnLabel, handler) {
   </div>`;
 }
 
+/** 「完整项目文档」section 专属渲染：HTML 内容不能走 renderTextBlock（会被 esc 转义）。 */
+function renderProjectDocBody(mdHtml) {
+  let html = `<div class="project-doc-toolbar">
+    <button class="btn btn-ghost btn-sm" id="pd-download">⬇ 下载 .md</button>
+    <button class="btn btn-ghost btn-sm" id="pd-copy">📋 复制</button>
+  </div>`;
+  html += `<div class="markdown-body">${mdHtml}</div>`;
+  return html;
+}
+
+function genProjectDocSectionHTML(full) {
+  const md = full.project_doc || '';
+  let inner;
+  if (md) {
+    _detailProjectDoc = md;
+    inner = renderProjectDocBody(full.project_doc_html || '');
+  } else {
+    inner = `<button class="btn btn-primary" onclick="genProjectDoc(this)">✨ 生成完整项目文档</button>
+      <p class="text-tertiary" style="font-size:12px; margin-top:8px;">生成一份可直接交给 Claude Code / Codex 搭建项目的详细文档（含各功能模块职责），约 30-60 秒</p>`;
+  }
+  return `<div class="card detail-section">
+    <div class="section-label">完整项目文档</div>
+    <div class="detail-section-body">${inner}</div>
+  </div>`;
+}
+
+function wireProjectDocToolbar() {
+  const dl = document.getElementById('pd-download');
+  const cp = document.getElementById('pd-copy');
+  if (dl) dl.addEventListener('click', () => {
+    const blob = new Blob([_detailProjectDoc], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `项目文档_${_detailProjectDocName || 'project'}.md`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
+  if (cp) cp.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(_detailProjectDoc);
+      cp.textContent = '✓ 已复制';
+      setTimeout(() => { cp.textContent = '📋 复制'; }, 1500);
+    } catch (e) {
+      alert('复制失败：' + e.message);
+    }
+  });
+}
+
+async function genProjectDoc(btn) {
+  if (!_detailSuggestionId) return;
+  const body = btn.closest('.detail-section-body');
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '生成中…';
+  try {
+    const result = await postJSON(`/suggestion/${_detailSuggestionId}/project-doc`);
+    if (!result.project_doc) {
+      body.innerHTML = '<p class="text-tertiary">未生成内容</p>';
+      return;
+    }
+    _detailProjectDoc = result.project_doc;
+    body.innerHTML = renderProjectDocBody(result.project_doc_html || '');
+    wireProjectDocToolbar();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = original;
+    const err = document.createElement('p');
+    err.className = 'error-text';
+    err.style.cssText = 'color:var(--danger,#e5484d); font-size:13px; margin-top:8px;';
+    err.textContent = '生成失败：' + e.message;
+    body.appendChild(err);
+  }
+}
+window.genProjectDoc = genProjectDoc;
+
 async function loadSuggestionDetail() {
   if (Auth.requireAuth()) return;
 
@@ -1051,6 +1131,7 @@ async function loadSuggestionDetail() {
 
   try {
     const s = await getJSON(`/suggestion/${id}`);
+    _detailProjectDocName = s.name || '';
     const keyFeatures = s.key_features || [];
     const mvpFeatures = s.mvp_features || [];
     const techStack = s.tech_stack || [];
@@ -1117,8 +1198,10 @@ async function loadSuggestionDetail() {
     // On-demand sections
     html += genSectionHTML('架构与目录结构', 'architecture', 'repo_structure', s, '生成架构与目录结构', 'genArchitecture');
     html += genSectionHTML('README 营销策略', 'readme_strategy', 'naming_tips', s, '生成 README 营销策略', 'genReadme');
+    html += genProjectDocSectionHTML(s);
 
     setBody(html);
+    wireProjectDocToolbar();  // 若已有文档，绑定下载/复制
 
     const regenBtn = document.getElementById('regen-btn');
     if (regenBtn) regenBtn.addEventListener('click', () => _regenerateSuggestion(id, regenBtn));
