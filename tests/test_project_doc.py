@@ -23,6 +23,21 @@ def test_markdown_to_html_escapes_raw_html_by_default():
     md = "正文 <script>alert(1)</script>"
     html = markdown_to_html(md)
     assert "<script>alert(1)</script>" not in html  # 默认转义，不产出可执行标签
+    assert "&lt;script&gt;" in html  # 钉住实际转义行为
+
+
+def test_markdown_to_html_strips_dangerous_url_schemes():
+    """链接/图片语法的 href/src 不会被 _EscapeHtml 处理，需单独剥离危险 scheme。"""
+    md = "![alt](javascript:alert(1)) 和 [x](data:text/html,<script>)"
+    html = markdown_to_html(md)
+    assert "javascript:" not in html
+    assert "data:" not in html
+
+
+def test_markdown_to_html_keeps_safe_links():
+    md = "[官网](https://example.com)"
+    html = markdown_to_html(md)
+    assert 'href="https://example.com"' in html
 
 
 def test_markdown_to_html_empty_input():

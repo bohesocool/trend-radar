@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import re
 from datetime import datetime
 from typing import Any
 
@@ -29,19 +30,33 @@ class _EscapeHtml(Extension):
         md.inlinePatterns.deregister("html")
 
 
-def markdown_to_html(md_text: str | None) -> str:
-    """把 Markdown 文本渲染成安全 HTML（启用 fenced_code 与 tables 扩展）。
+# 剥离 href/src 属性中危险 scheme (javascript:/vbscript:/data:) 的值。
+# _EscapeHtml 只转义原始 HTML，但 Markdown 链接/图片语法产出的 href/src 不会被它处理，
+# 而本函数输出会经 innerHTML 插入页面，故做 best-effort 剥离。
+_DANGEROUS_URL_RE = re.compile(
+    r"""\b(href|src)\s*=\s*(["'])(?:javascript|vbscript|data)\s*:[^"']*\2""",
+    re.IGNORECASE,
+)
 
-    通过 _EscapeHtml 扩展转义原始 HTML，因此不会产出 <script> 等可执行标签。
+
+def markdown_to_html(md_text: str | None) -> str:
+    """把 Markdown 文本渲染成 HTML 并做基本安全处理。
+
+    - 通过 _EscapeHtml 扩展转义原始 HTML（不产出 <script> 等可执行标签）；
+    - 剥离 href/src 中的 javascript:/vbscript:/data: scheme（best-effort 正则，
+      因输出会经 innerHTML 插入详情页）；
+    - 启用 fenced_code、tables、nl2br 扩展。
+
     用于详情页「完整项目文档」的在线预览。
     """
     if not md_text:
         return ""
-    return md_lib.markdown(
+    html = md_lib.markdown(
         md_text,
         extensions=["fenced_code", "tables", "nl2br", _EscapeHtml()],
         output_format="html",
     )
+    return _DANGEROUS_URL_RE.sub("", html)
 
 
 router = APIRouter(prefix="/api")
