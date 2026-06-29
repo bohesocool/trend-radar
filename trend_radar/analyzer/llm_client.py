@@ -24,8 +24,14 @@ class LLMClient:
         self.temperature = cfg.get("temperature", 0.7)
         self.max_tokens = cfg.get("max_tokens", 12000)
 
-    def chat(self, system_prompt: str, user_prompt: str, max_retries: int = 2) -> str:
-        """调用 chat completions，返回文本响应。失败自动重试。"""
+    def chat(
+        self, system_prompt: str, user_prompt: str, max_retries: int = 2, max_tokens: int | None = None
+    ) -> str:
+        """调用 chat completions，返回文本响应。失败自动重试。
+
+        max_tokens: 显式覆盖实例默认上限（用于需要更长输出的单次调用，如整篇项目文档）。
+        """
+        effective_max_tokens = max_tokens if max_tokens is not None else self.max_tokens
         for attempt in range(max_retries + 1):
             try:
                 logger.debug(f"LLM 调用 (attempt {attempt+1}): model={self.model}, system_len={len(system_prompt)}")
@@ -36,7 +42,7 @@ class LLMClient:
                         {"role": "user", "content": user_prompt},
                     ],
                     temperature=self.temperature,
-                    max_tokens=self.max_tokens,
+                    max_tokens=effective_max_tokens,
                     timeout=120,
                 )
                 content = resp.choices[0].message.content or ""

@@ -1,5 +1,8 @@
 """项目文档生成相关单元测试（纯逻辑，不碰 DB / 鉴权 / 真 LLM）。"""
 
+from unittest.mock import MagicMock
+
+from trend_radar.analyzer.llm_client import LLMClient
 from trend_radar.web.api import markdown_to_html
 from trend_radar.generator.suggestion_engine import _parse_suggestion
 
@@ -54,3 +57,30 @@ def test_parse_suggestion_reads_project_doc():
 def test_parse_suggestion_project_doc_defaults_empty():
     s = _parse_suggestion({"name": "foo"})
     assert s.project_doc == ""
+
+
+def test_chat_passes_explicit_max_tokens():
+    """显式传入 max_tokens 时，应覆盖实例默认值传给 API。"""
+    client = LLMClient()
+    client.client = MagicMock()
+    fake_choice = MagicMock()
+    fake_choice.message.content = "hello"
+    client.client.chat.completions.create.return_value = MagicMock(choices=[fake_choice])
+
+    client.chat("sys", "usr", max_tokens=8000)
+
+    _, kwargs = client.client.chat.completions.create.call_args
+    assert kwargs["max_tokens"] == 8000
+
+
+def test_chat_uses_default_max_tokens_when_omitted():
+    client = LLMClient()
+    client.client = MagicMock()
+    fake_choice = MagicMock()
+    fake_choice.message.content = "hello"
+    client.client.chat.completions.create.return_value = MagicMock(choices=[fake_choice])
+
+    client.chat("sys", "usr")
+
+    _, kwargs = client.client.chat.completions.create.call_args
+    assert kwargs["max_tokens"] == client.max_tokens
