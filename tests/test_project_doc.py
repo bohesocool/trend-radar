@@ -40,6 +40,19 @@ def test_markdown_to_html_strips_dangerous_url_schemes():
     assert "data:" not in html
 
 
+def test_markdown_to_html_strips_entity_encoded_scheme():
+    """实体编码冒号 javascript&#58; 浏览器会解码为 javascript:，必须一并挡掉。"""
+    html = markdown_to_html("[x](javascript&#58;alert(1))")
+    assert "javascript" not in html.lower()
+
+
+def test_markdown_to_html_strips_control_char_in_scheme():
+    """scheme 内插入控制符 (java\\nscript:) 浏览器会去除后解析为 javascript:，必须挡掉。"""
+    html = markdown_to_html("[x](java\nscript:alert(1))")
+    assert "href" not in html  # 整个 href 被白名单剥离
+    assert "javascript" not in html.lower()
+
+
 def test_markdown_to_html_keeps_safe_links():
     md = "[官网](https://example.com)"
     html = markdown_to_html(md)
