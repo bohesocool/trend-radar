@@ -10,7 +10,6 @@ from loguru import logger
 
 from trend_radar import db
 from trend_radar.analyzer.trend_analyzer import analyze_trends
-from trend_radar.analyzer.aggregator import aggregate_by_topic
 from trend_radar.collectors import (
     ArxivCollector,
     GitHubTrendingCollector,
@@ -109,7 +108,7 @@ async def run_daily(progress=None) -> DailyReport:
     _emit(3, "生成项目建议")
     n = get_config()["generator"]["daily_suggestions"]
     try:
-        suggestions = generate_suggestions(analysis, n)
+        suggestions = generate_suggestions(analysis, n, raw_items=items)
     except Exception as e:
         logger.error(f"项目建议生成失败: {e}")
         suggestions = []

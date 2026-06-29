@@ -16,7 +16,7 @@ from typing import Any
 from loguru import logger
 
 from trend_radar.analyzer.llm_client import LLMClient
-from trend_radar.models import Opportunity, ProjectSuggestion, TrendAnalysis
+from trend_radar.models import HotTopic, Opportunity, ProjectSuggestion, TrendAnalysis
 
 _SYSTEM_PROMPT = """你是一名开源项目创业顾问，擅长找到「能在 GitHub 上病毒式传播」的项目方向。
 你的目标是：基于趋势分析结果，生成具体、可执行、有差异化的项目建议。
@@ -34,18 +34,18 @@ GitHub star 增长策略：
 
 必须严格按照 JSON 格式回复。"""
 
-_USER_PROMPT_TEMPLATE = """基于以下 {date} 的趋势分析结果，生成 1 个具体的项目建议。
+_USER_PROMPT_TEMPLATE = """基于以下 {date} 的趋势分析结果，生成 {n} 个具体、差异化的项目建议。
 
 【趋势概述】
 {summary}
 
 【热点主题】
-{hot_topics}
+{hot_topics_full}
 
 【新兴机会】
 {opportunities}
 
-请输出 JSON（只包含 1 个建议）：
+请输出 JSON（包含 {n} 个建议，suggestions 数组里放 {n} 个对象）：
 ```json
 {{
   "suggestions": [
@@ -71,14 +71,66 @@ _USER_PROMPT_TEMPLATE = """基于以下 {date} 的趋势分析结果，生成 1 
 ```
 
 要求：
-- 只生成 1 个建议
+- 生成 {n} 个建议
 - 这是一份轻量报告，不要输出脚手架代码、目录结构或 README 文案（这些会在详情页按需生成）
 - 项目名要检查不会与知名项目重名
-- {index_hint}"""
+- {diversity_hint}"""
 
 
-def generate_suggestions(analysis: TrendAnalysis, n: int = 5) -> list[ProjectSuggestion]:
-    """基于趋势分析生成轻量项目建议。每次只生成 1 个，循环调用 N 次以提高成功率。"""
+def _format_hot_topics_with_evidence(hot_topics: list[HotTopic], raw_items: list | None) -> str:
+    """把热点主题的"接地"字段 + 每个热点命中的原始条目拼成 prompt 文本。
+
+    之前只传 topic/heat/trend/description 四个抽象字段，evidence/insights 等具体信息全丢了，
+    导致 similar_projects 只能凭空编造。这里把 evidence 和"该主题下真实在涨的项目"一起喂进去。
+    """
+    if not hot_topics:
+        return ""
+
+    # 预建一个可检索的原始条目池：标题/描述里命中关键词即可关联
+    raw_items = raw_items or []
+    _RAW_LIMIT_PER_TOPIC = 5
+
+    def _match(topic: str, desc: str) -> list:
+        if not raw_items:
+            return []
+        kws = {w.lower() for w in topic.replace("-", " ").split() if len(w) > 2}
+        hits: list = []
+        for it in raw_items:
+            hay = f"{it.title} {it.description}".lower()
+            if any(k in hay for k in kws):
+                hits.append(it)
+            if len(hits) >= _RAW_LIMIT_PER_TOPIC:
+                break
+        return hits
+
+    lines: list[str] = []
+    for ht in hot_topics:
+        lines.append(
+            f"- {ht.topic} (热度:{ht.heat_score}, 趋势:{ht.trend}): {ht.description}"
+        )
+        if ht.evidence:
+            lines.append(f"  证据: {'; '.join(ht.evidence)}")
+        if ht.key_insights:
+            lines.append(f"  洞察: {'; '.join(ht.key_insights)}")
+        if ht.recommendations:
+            lines.append(f"  建议: {'; '.join(ht.recommendations)}")
+        if ht.languages:
+            lines.append(f"  语言: {', '.join(ht.languages)}")
+        matched = _match(ht.topic, ht.description)
+        for it in matched:
+            src = getattr(it, "source", "?")
+            pop = getattr(it, "popularity", 0)
+            lines.append(f"  · [{src}] {it.title} (热度{pop}) — {it.description}")
+    return "\n".join(lines)
+
+
+def generate_suggestions(analysis: TrendAnalysis, n: int = 5, raw_items: list | None = None) -> list[ProjectSuggestion]:
+    """基于趋势分析生成轻量项目建议。单次调用让 LLM 连续出 N 条，同上下文自分化，
+    避免逐条独立采样导致的雷同换皮。失败时兜底重试。
+
+    raw_items: 当天的原始采集数据（可选）。传入后会把每个热点对应的具体仓库/帖子/论文
+    喂给 LLM，让 similar_projects / tech_stack 有真实参照，而非凭空编造。
+    """
     if not analysis.hot_topics and not analysis.emerging_opportunities:
         logger.warning("无趋势数据，跳过建议生成")
         return []
@@ -88,80 +140,85 @@ def generate_suggestions(analysis: TrendAnalysis, n: int = 5) -> list[ProjectSug
         for ht in analysis.hot_topics
     )
     opportunities_text = "\n".join(
-        f"- [opp.difficulty] {opp.gap} → {opp.why_now} (预估star: {opp.potential_stars})"
+        f"- [{opp.difficulty}] {opp.gap} → {opp.why_now} (预估star: {opp.potential_stars})"
         for opp in analysis.emerging_opportunities
     )
 
-    llm = LLMClient()
-    suggestions: list[ProjectSuggestion] = []
-    used_names: set[str] = set()
-    used_categories: set[str] = set()
+    # 把热点主题的"接地"字段（evidence/insights/recommendations/languages）以及
+    # 每个热点对应的原始采集条目拼进 prompt，让建议不再凭空发挥
+    hot_topics_full_text = _format_hot_topics_with_evidence(analysis.hot_topics, raw_items)
 
-    for i in range(n):
-        # Build index hint to encourage variety
-        index_hint = f"这是第 {i+1}/{n} 个建议，请选择不同的方向"
-        if used_names:
-            index_hint += f"，避免与已生成的项目重复: {', '.join(list(used_names)[:5])}"
-        if used_categories:
-            index_hint += f"，尝试不同于已使用的分类: {', '.join(used_categories)}"
-        if i > 0:
-            index_hint += "，优先选择 trending=rising 的主题"
+    diversity_hint = _diversity_hint(analysis, n)
 
-        user_prompt = _USER_PROMPT_TEMPLATE.format(
+    def _build_prompt(hint: str) -> str:
+        return _USER_PROMPT_TEMPLATE.format(
             date=analysis.date,
+            n=n,
             summary=analysis.daily_summary,
             hot_topics=hot_topics_text,
+            hot_topics_full=hot_topics_full_text,
             opportunities=opportunities_text,
-            index_hint=index_hint,
+            diversity_hint=hint,
         )
 
-        logger.info(f"调用 LLM 生成第 {i+1}/{n} 个项目建议...")
-        try:
-            result = llm.chat_json(_SYSTEM_PROMPT, user_prompt)
-            s_list = result.get("suggestions", [])
-            if not s_list:
-                logger.warning(f"第 {i+1} 个建议: LLM 返回空 suggestions 列表")
-                continue
-            s_data = s_list[0]
+    def _parse_batch(result: dict[str, Any], existing: list[ProjectSuggestion] | None = None) -> list[ProjectSuggestion]:
+        """从一次调用结果里解析建议，去重（含与已有批次的全局去重）+ 限 N 条。"""
+        s_list = result.get("suggestions", []) or []
+        seen: set[str] = {s.name for s in existing} if existing else set()
+        out: list[ProjectSuggestion] = []
+        for s_data in s_list:
             suggestion = _parse_suggestion(s_data)
-            if suggestion.name in used_names:
-                logger.warning(f"第 {i+1} 个建议: 项目名 '{suggestion.name}' 已存在，跳过")
+            if not suggestion.name or suggestion.name in seen:
                 continue
-            used_names.add(suggestion.name)
-            used_categories.add(suggestion.category)
-            suggestions.append(suggestion)
-            logger.info(f"第 {i+1} 个建议生成成功: {suggestion.name}")
-        except Exception as e:
-            logger.error(f"第 {i+1} 个建议生成失败: {e}")
-            continue
+            seen.add(suggestion.name)
+            out.append(suggestion)
+            if len(out) >= n:
+                break
+        return out
 
-    # 如果全部失败，至少重试 3 次确保出 1 个
-    if not suggestions:
-        logger.warning("所有建议生成失败，启动兜底重试...")
-        for retry_i in range(3):
-            logger.info(f"兜底重试第 {retry_i+1}/3 次...")
-            try:
-                retry_hint = "这是最后一次机会，请务必生成一个高质量的项目建议"
-                retry_prompt = _USER_PROMPT_TEMPLATE.format(
-                    date=analysis.date,
-                    summary=analysis.daily_summary,
-                    hot_topics=hot_topics_text,
-                    opportunities=opportunities_text,
-                    index_hint=retry_hint,
-                )
-                result = llm.chat_json(_SYSTEM_PROMPT, retry_prompt)
-                s_list = result.get("suggestions", [])
-                if s_list:
-                    suggestion = _parse_suggestion(s_list[0])
-                    suggestions.append(suggestion)
-                    logger.info(f"兜底重试成功: {suggestion.name}")
-                    break
-            except Exception as e:
-                logger.error(f"兜底重试第 {retry_i+1} 次失败: {e}")
-                continue
+    llm = LLMClient()
+    suggestions: list[ProjectSuggestion] = []
+
+    # 主调用：单次出 N 条
+    logger.info(f"调用 LLM 一次性生成 {n} 个项目建议...")
+    try:
+        result = llm.chat_json(_SYSTEM_PROMPT, _build_prompt(diversity_hint))
+        suggestions = _parse_batch(result)
+        logger.info(f"单次调用生成 {len(suggestions)}/{n} 个建议: {[s.name for s in suggestions]}")
+    except Exception as e:
+        logger.error(f"项目建议生成失败: {e}")
+
+    # 兜底：若数量不足，逐条补齐到 N（仍失败则至少保证 1 条）
+    retries = 0
+    while len(suggestions) < n and retries < 3:
+        retries += 1
+        need = n - len(suggestions)
+        logger.warning(f"当前 {len(suggestions)}/{n}，启动兜底重试第 {retries}/3 次，补 {need} 条...")
+        try:
+            hint = _diversity_hint(analysis, need, existing=suggestions)
+            result = llm.chat_json(_SYSTEM_PROMPT, _build_prompt(hint))
+            extra = _parse_batch(result, existing=suggestions)
+            if extra:
+                suggestions.extend(extra)
+                logger.info(f"兜底第 {retries} 次补充成功，现 {len(suggestions)}/{n}")
+        except Exception as e:
+            logger.error(f"兜底重试第 {retries} 次失败: {e}")
+            continue
 
     logger.info(f"共生成 {len(suggestions)}/{n} 个项目建议")
     return suggestions
+
+
+def _diversity_hint(
+    analysis: TrendAnalysis, n: int, existing: list[ProjectSuggestion] | None = None
+) -> str:
+    """构造差异化提示：要求覆盖不同热点/分类/技术栈；若已有建议则点名避开其方向。"""
+    parts = [f"这 {n} 个建议必须彼此差异化：覆盖不同的热点主题、不同的 category 与技术栈，优先 trending=rising 的主题"]
+    if existing:
+        names = ", ".join(s.name for s in existing[:8])
+        cats = ", ".join(sorted({s.category for s in existing}))
+        parts.append(f"已有建议 [{names}]，分类 [{cats}]，新建议要避开这些方向与命名")
+    return "；".join(parts)
 
 
 # ===== 按需生成（详情页点按钮时调用） =====

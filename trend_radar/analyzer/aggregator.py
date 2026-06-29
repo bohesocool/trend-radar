@@ -105,3 +105,22 @@ def format_items_for_llm(items: list[TrendItem]) -> str:
         sections.append("\n".join(lines))
 
     return "\n".join(sections)
+
+
+def format_topics_for_llm(topics: list[dict[str, Any]]) -> str:
+    """将跨源聚合的主题格式化为 LLM 可读文本。
+
+    aggregate_by_topic 把"同一 tag 被几个源、几条同时提到"算成了强趋势信号；
+    这里把它转成文本喂给 LLM，省得模型从扁平明细里自己重猜跨源关联。
+    """
+    if not topics:
+        return ""
+    lines = []
+    for t in topics[:15]:  # 限 15 个，避免 prompt 过长
+        sources = "+".join(t.get("sources", []))
+        lines.append(
+            f"- [{t['tag']}] {t['source_count']}源({sources}) 热度{t['total_heat']} 共{t['item_count']}条"
+        )
+        for it in t.get("top_items", [])[:3]:
+            lines.append(f"    · {it['title']} ({it['source']}, 热度{it['popularity']})")
+    return "\n".join(lines)

@@ -143,8 +143,11 @@ def regenerate_suggestion(suggestion_id: int, auth: bool = Depends(require_auth)
         raw_items_count=analysis_row.get("raw_items_count", 0),
     )
 
+    # 取回当天的原始采集数据，让重新生成也能拿到真实仓库/帖子参照
+    raw_items = db.get_trend_items_by_date(date)
+
     try:
-        generated = generate_suggestions(analysis, 1)
+        generated = generate_suggestions(analysis, 1, raw_items=raw_items)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"重新生成失败: {e}")
     if not generated:
