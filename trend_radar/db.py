@@ -62,8 +62,15 @@ def init_db() -> None:
                 created_at TEXT DEFAULT (datetime('now'))
             );
 
+            CREATE TABLE IF NOT EXISTS sessions (
+                token TEXT PRIMARY KEY,
+                expire TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+
             CREATE INDEX IF NOT EXISTS idx_trends_date ON trends(date);
             CREATE INDEX IF NOT EXISTS idx_suggestions_date ON suggestions(date);
+            CREATE INDEX IF NOT EXISTS idx_sessions_expire ON sessions(expire);
             """
         )
         # 旧库迁移：补 pinned 列
@@ -314,3 +321,42 @@ def get_recent_summaries(limit: int = 7) -> list[dict[str, Any]]:
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+# ===== Session 持久化 =====
+# 把登录 token 存进 SQLite，容器/进程重启后仍有效，避免用户被反复踢回登录页。
+
+def save_session(token: str, expire_ts: float) -> None:
+    """写入（或刷新）一个 session token 及其过期时间戳（unix 秒）。"""
+    with _get_conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO sessions (token, expire) VALUES (?, ?)",
+            (token, datetime.utcfromtimestamp(expire_ts).strftime("%Y-%m-%dT%H:%M:%SZ")),
+        )
+
+
+def get_session_expire(token: str) -> float | None:
+    """返回 token 的过期时间戳（unix 秒）；不存在则 None。"""
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT expire FROM sessions WHERE token = ?", (token,)
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        return datetime.strptime(row["expire"], "%Y-%m-%dT%H:%M:%SZ").timestamp()
+    except (ValueError, TypeError):
+        return None
+
+
+def delete_session(token: str) -> None:
+    """删除单个 session（登出用）。"""
+    with _get_conn() as conn:
+        conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+
+
+def cleanup_expired_sessions(now_ts: float) -> None:
+    """删除已过期的 session。"""
+    cutoff = datetime.utcfromtimestamp(now_ts).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with _get_conn() as conn:
+        conn.execute("DELETE FROM sessions WHERE expire < ?", (cutoff,))

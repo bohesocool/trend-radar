@@ -1,4 +1,4 @@
-"""鉴权模块 — 固定密码 + 简单 session token。"""
+"""鉴权模块 — 固定密码 + 持久化 session token (SQLite)。"""
 
 from __future__ import annotations
 
@@ -8,11 +8,10 @@ import time
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from trend_radar import db
+
 # session token 有效期 (秒)
 SESSION_TTL = 86400 * 30  # 30 天
-
-# 内存中的 session 存储 (进程重启后失效，需重新登录)
-_active_sessions: dict[str, float] = {}  # token -> expire_timestamp
 
 security = HTTPBearer(auto_error=False)
 
@@ -35,29 +34,25 @@ def login(password: str) -> str | None:
     """验证密码，成功返回 session token，失败返回 None。"""
     if password == _get_password():
         token = secrets.token_hex(24)
-        _active_sessions[token] = time.time() + SESSION_TTL
-        _cleanup_sessions()
+        db.save_session(token, time.time() + SESSION_TTL)
+        # 顺带清理过期 session，避免表无限增长
+        try:
+            db.cleanup_expired_sessions(time.time())
+        except Exception:
+            pass
         return token
     return None
 
 
 def verify_token(token: str) -> bool:
     """验证 session token 是否有效。"""
-    expire = _active_sessions.get(token)
+    expire = db.get_session_expire(token)
     if expire is None:
         return False
     if time.time() > expire:
-        _active_sessions.pop(token, None)
+        db.delete_session(token)
         return False
     return True
-
-
-def _cleanup_sessions() -> None:
-    """清理过期 session。"""
-    now = time.time()
-    expired = [t for t, exp in _active_sessions.items() if now > exp]
-    for t in expired:
-        _active_sessions.pop(t, None)
 
 
 async def require_auth(

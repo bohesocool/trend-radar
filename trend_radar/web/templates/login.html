@@ -11,6 +11,18 @@
       --border: rgba(255,255,255,0.08); --border-subtle: rgba(255,255,255,0.05);
       --text: #f7f8f8; --text-secondary: #d0d6e0; --text-tertiary: #8a8f98; --text-quaternary: #62666d;
       --brand: #5e6ad2; --accent: #7170ff; --accent-hover: #828fff; --danger: #f85149;
+      --surface-input: rgba(255,255,255,0.02);
+      --surface-btn: rgba(255,255,255,0.02);
+      --surface-btn-hover: rgba(255,255,255,0.05);
+    }
+    [data-theme="light"] {
+      --bg: #f7f8f8; --bg-card: #ffffff; --bg-elevated: #f3f4f5;
+      --border: #e6e6e6; --border-subtle: rgba(0,0,0,0.06);
+      --text: #171717; --text-secondary: #5d5d5d; --text-tertiary: #8a8f98; --text-quaternary: #b4b8bf;
+      --brand: #5e6ad2; --accent: #7170ff; --accent-hover: #4c5bce; --danger: #d4380d;
+      --surface-input: rgba(0,0,0,0.02);
+      --surface-btn: rgba(0,0,0,0.02);
+      --surface-btn-hover: rgba(0,0,0,0.05);
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -29,7 +41,7 @@
     .form-group { margin-bottom: 20px; text-align: left; }
     .form-label { display: block; font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-bottom: 8px; }
     .form-input {
-      width: 100%; background: rgba(255,255,255,0.02); border: 1px solid var(--border);
+      width: 100%; background: var(--surface-input); border: 1px solid var(--border);
       border-radius: 8px; padding: 12px 14px; color: var(--text);
       font-family: inherit; font-size: 15px;
       transition: border-color 0.2s; outline: none;
@@ -37,17 +49,23 @@
     .form-input:focus { border-color: var(--accent); }
     .form-input::placeholder { color: var(--text-quaternary); }
     .login-btn {
-      width: 100%; background: rgba(255,255,255,0.02); color: var(--text-primary);
+      width: 100%; background: var(--surface-btn); color: var(--text);
       border: 1px solid var(--border); border-radius: 8px;
       padding: 12px; font-size: 15px; font-weight: 500; cursor: pointer;
       transition: background 0.2s, border-color 0.2s; font-family: inherit;
     }
-    .login-btn:hover { background: rgba(255,255,255,0.05); border-color: var(--accent); }
+    .login-btn:hover { background: var(--surface-btn-hover); border-color: var(--accent); }
     .login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .login-error { color: var(--danger); font-size: 14px; margin-top: 16px; display: none; }
   </style>
 </head>
 <body>
+  <script>
+    (function() {
+      var t = localStorage.getItem('trendradar_theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
   <div class="login-card">
     <div class="login-logo">🔭</div>
     <h1 class="login-title">TrendRadar</h1>
