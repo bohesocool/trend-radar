@@ -226,11 +226,20 @@ def get_suggestion_by_id(suggestion_id: int) -> dict[str, Any] | None:
 
 
 def update_suggestion_full_data(suggestion_id: int, full_data: dict) -> None:
-    """覆盖更新某个建议的 full_data（用于详情页按需补充架构/README 等内容）。"""
+    """合并更新某个建议的 full_data（用于详情页按需补充架构/README 等内容）。"""
+    row = get_suggestion_by_id(suggestion_id)
+    latest: dict[str, Any] = {}
+    if row:
+        try:
+            latest = json.loads(row.get("full_data") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            latest = {}
+    latest.update(full_data)
+
     with _get_conn() as conn:
         conn.execute(
             "UPDATE suggestions SET full_data = ? WHERE id = ?",
-            (json.dumps(full_data, ensure_ascii=False, default=str), suggestion_id),
+            (json.dumps(latest, ensure_ascii=False, default=str), suggestion_id),
         )
 
 

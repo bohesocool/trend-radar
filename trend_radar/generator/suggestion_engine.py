@@ -428,4 +428,4 @@ def generate_project_doc(suggestion: ProjectSuggestion, existing_context: dict[s
     llm = LLMClient()
     prompt = _build_project_doc_prompt(suggestion, existing_context)
     # 整篇文档较长，显式放宽输出上限，避免被默认值截断
-    return llm.chat(_PROJECT_DOC_SYSTEM_PROMPT, prompt, max_tokens=8000)
+    return llm.chat(_PROJECT_DOC_SYSTEM_PROMPT, prompt, max_tokens=max(llm.max_tokens, 8000))

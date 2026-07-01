@@ -1,7 +1,10 @@
 """项目文档生成相关单元测试（纯逻辑，不碰 DB / 鉴权 / 真 LLM）。"""
 
+import json
+
 from unittest.mock import MagicMock
 
+import trend_radar.db as db
 import trend_radar.generator.suggestion_engine as se
 from trend_radar.analyzer.llm_client import LLMClient
 from trend_radar.models import ProjectSuggestion
@@ -137,18 +140,47 @@ def test_build_prompt_omits_context_block_when_empty():
     assert "已有架构参考" not in prompt
 
 
-def test_generate_project_doc_returns_chat_output(monkeypatch):
+def test_generate_project_doc_uses_at_least_configured_max_tokens(monkeypatch):
     captured = {}
 
     class FakeLLM:
+        max_tokens = 12000
+
         def chat(self, system_prompt, user_prompt, max_retries=2, max_tokens=None):
-            captured["user"] = user_prompt
             captured["max_tokens"] = max_tokens
-            return "# 项目文档\n\n## 核心功能模块\n..."
+            return "# 长文档"
 
     monkeypatch.setattr(se, "LLMClient", FakeLLM)
 
-    md = se.generate_project_doc(_suggestion(), _EMPTY_CTX)
-    assert md == "# 项目文档\n\n## 核心功能模块\n..."
-    assert "trend-radar" in captured["user"]
-    assert captured["max_tokens"] is not None
+    se.generate_project_doc(_suggestion(), _EMPTY_CTX)
+
+    assert captured["max_tokens"] == 12000
+
+
+def test_update_suggestion_full_data_merges_with_latest_row(monkeypatch):
+    writes = []
+
+    class FakeCursor:
+        rowcount = 1
+
+    class FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, sql, params):
+            writes.append(json.loads(params[0]))
+            return FakeCursor()
+
+    monkeypatch.setattr(db, "_get_conn", lambda: FakeConn())
+    monkeypatch.setattr(
+        db,
+        "get_suggestion_by_id",
+        lambda suggestion_id: {"full_data": json.dumps({"architecture": "keep me"}, ensure_ascii=False)},
+    )
+
+    db.update_suggestion_full_data(1, {"project_doc": "# Doc"})
+
+    assert writes == [{"architecture": "keep me", "project_doc": "# Doc"}]

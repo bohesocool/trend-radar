@@ -251,19 +251,16 @@ def _generate_and_store(suggestion_id: int, kind: str) -> dict[str, Any]:
     try:
         if kind == "architecture":
             generated = generate_architecture(suggestion)
-            full.update(generated)
-            db.update_suggestion_full_data(suggestion_id, full)
+            db.update_suggestion_full_data(suggestion_id, generated)
             return generated
         if kind == "readme":
             generated = generate_readme_strategy(suggestion)
-            full.update(generated)
-            db.update_suggestion_full_data(suggestion_id, full)
+            db.update_suggestion_full_data(suggestion_id, generated)
             return generated
         if kind == "project_doc":
             # 把已生成的 architecture / readme 等作为上下文喂给 AI，由其统筹重写进整篇文档
             md = generate_project_doc(suggestion, full)
-            full["project_doc"] = md
-            db.update_suggestion_full_data(suggestion_id, full)
+            db.update_suggestion_full_data(suggestion_id, {"project_doc": md})
             return {"project_doc": md, "project_doc_html": markdown_to_html(md)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"生成失败: {e}")
