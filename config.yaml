@@ -47,6 +47,8 @@ generator:
   weekly_suggestions: 8
   generate_scaffold: true
   languages: ["python"]
+  # AI 输出语言：zh = 中文，en = 英文。影响趋势分析、项目建议、详情页按需生成。
+  output_language: "zh"
 
 # 推送
 pusher:

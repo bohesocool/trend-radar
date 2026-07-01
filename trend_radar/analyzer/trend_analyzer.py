@@ -10,6 +10,7 @@ from loguru import logger
 
 from trend_radar.analyzer.aggregator import aggregate_by_topic, format_items_for_llm, format_topics_for_llm
 from trend_radar.analyzer.llm_client import LLMClient
+from trend_radar.generator.language import language_instruction
 from trend_radar.models import HotTopic, Opportunity, TrendAnalysis, TrendItem
 
 _SYSTEM_PROMPT = """你是一名 GitHub 趋势分析师和开源项目策略顾问。
@@ -92,8 +93,9 @@ def analyze_trends(items: list[TrendItem], date_str: str | None = None) -> Trend
     user_prompt = _USER_PROMPT_TEMPLATE.format(
         date=date_str, data=data_text, topics=topics_text
     )
+    system_prompt = f"{_SYSTEM_PROMPT}\n\n{language_instruction()}"
     logger.info("调用 LLM 进行趋势分析...")
-    result = llm.chat_json(_SYSTEM_PROMPT, user_prompt)
+    result = llm.chat_json(system_prompt, user_prompt)
 
     # 4. 解析结果
     analysis = _parse_analysis(result, date_str, len(items))

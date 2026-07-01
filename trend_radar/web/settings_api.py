@@ -105,6 +105,7 @@ def get_settings() -> dict[str, Any]:
         },
         "collect": {
             "daily_suggestions": generator.get("daily_suggestions", 3),
+            "output_language": generator.get("output_language", "zh"),
             "github_languages": collectors.get("github_trending", {}).get("languages", ["python"]),
             "hn_min_points": collectors.get("hackernews", {}).get("min_points", 100),
             "arxiv_categories": collectors.get("arxiv", {}).get("categories", ["cs.AI", "cs.CL", "cs.LG"]),
@@ -156,6 +157,9 @@ def update_settings(req: SettingsUpdate) -> dict[str, str]:
 
         if "daily_suggestions" in req.collect:
             generator["daily_suggestions"] = int(req.collect["daily_suggestions"])
+        if "output_language" in req.collect:
+            lang = str(req.collect["output_language"]).strip().lower()
+            generator["output_language"] = lang if lang in ("zh", "en") else "zh"
         if "github_languages" in req.collect:
             collectors.setdefault("github_trending", {})["languages"] = req.collect["github_languages"]
         if "hn_min_points" in req.collect:

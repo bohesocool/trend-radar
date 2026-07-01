@@ -187,7 +187,7 @@ def save_analysis(date_str: str, summary: str, hot_topics: list, opportunities: 
 
 
 def save_suggestion(date_str: str, name: str, tagline: str, category: str, description: str, full_data: dict) -> None:
-    """保存项目建议。"""
+    """保存项目建议。同一天多次运行日报时累积追加——每批 LLM 产出不同点子，前端可择优。"""
     with _get_conn() as conn:
         conn.execute(
             """

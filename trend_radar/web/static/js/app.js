@@ -1325,6 +1325,14 @@ async function loadSettings() {
             <input type="number" id="setting-daily-suggestions" value="${collect.daily_suggestions || 3}" min="1" max="10">
           </div>
           <div class="form-field">
+            <label>AI 输出语言</label>
+            <select id="setting-output-language">
+              <option value="zh" ${(collect.output_language || 'zh') === 'zh' ? 'selected' : ''}>中文</option>
+              <option value="en" ${collect.output_language === 'en' ? 'selected' : ''}>英文</option>
+            </select>
+            <div class="form-hint">趋势分析、项目建议、详情页按需生成正文使用的语言。项目名始终为英文。修改后需重启容器生效。</div>
+          </div>
+          <div class="form-field">
             <label>GitHub 采集语言</label>
             <input type="text" id="setting-github-langs" value="${esc(githubLangs)}" placeholder="python, javascript, go">
             <div class="form-hint">逗号分隔</div>
@@ -1418,6 +1426,7 @@ async function saveSettings() {
   const apiKey = document.getElementById('setting-api-key')?.value?.trim() || '';
   const model = document.getElementById('setting-model')?.value?.trim() || '';
   const dailySuggestions = parseInt(document.getElementById('setting-daily-suggestions')?.value || '3');
+  const outputLanguage = document.getElementById('setting-output-language')?.value || 'zh';
   const githubLangs = document.getElementById('setting-github-langs')?.value?.split(',').map((s) => s.trim()).filter(Boolean) || ['python'];
   const hnMinPoints = parseInt(document.getElementById('setting-hn-min-points')?.value || '100');
   const arxivCats = document.getElementById('setting-arxiv-cats')?.value?.split(',').map((s) => s.trim()).filter(Boolean) || ['cs.AI', 'cs.CL', 'cs.LG'];
@@ -1437,6 +1446,7 @@ async function saveSettings() {
     ai: { api_base: apiBase, api_key: apiKey, model: model },
     collect: {
       daily_suggestions: dailySuggestions,
+      output_language: outputLanguage,
       github_languages: githubLangs,
       hn_min_points: hnMinPoints,
       arxiv_categories: arxivCats,

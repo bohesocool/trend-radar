@@ -16,6 +16,7 @@ from typing import Any
 from loguru import logger
 
 from trend_radar.analyzer.llm_client import LLMClient
+from trend_radar.generator.language import language_instruction
 from trend_radar.models import HotTopic, Opportunity, ProjectSuggestion, TrendAnalysis
 
 _SYSTEM_PROMPT = """你是一名开源项目创业顾问，擅长找到「能在 GitHub 上病毒式传播」的项目方向。
@@ -178,11 +179,12 @@ def generate_suggestions(analysis: TrendAnalysis, n: int = 5, raw_items: list | 
 
     llm = LLMClient()
     suggestions: list[ProjectSuggestion] = []
+    system_prompt = f"{_SYSTEM_PROMPT}\n\n{language_instruction()}"
 
     # 主调用：单次出 N 条
     logger.info(f"调用 LLM 一次性生成 {n} 个项目建议...")
     try:
-        result = llm.chat_json(_SYSTEM_PROMPT, _build_prompt(diversity_hint))
+        result = llm.chat_json(system_prompt, _build_prompt(diversity_hint))
         suggestions = _parse_batch(result)
         logger.info(f"单次调用生成 {len(suggestions)}/{n} 个建议: {[s.name for s in suggestions]}")
     except Exception as e:
@@ -196,7 +198,7 @@ def generate_suggestions(analysis: TrendAnalysis, n: int = 5, raw_items: list | 
         logger.warning(f"当前 {len(suggestions)}/{n}，启动兜底重试第 {retries}/3 次，补 {need} 条...")
         try:
             hint = _diversity_hint(analysis, need, existing=suggestions)
-            result = llm.chat_json(_SYSTEM_PROMPT, _build_prompt(hint))
+            result = llm.chat_json(system_prompt, _build_prompt(hint))
             extra = _parse_batch(result, existing=suggestions)
             if extra:
                 suggestions.extend(extra)
@@ -277,7 +279,8 @@ def generate_architecture(suggestion: ProjectSuggestion) -> dict[str, str]:
         tech_stack=", ".join(suggestion.tech_stack),
         key_features=", ".join(suggestion.key_features),
     )
-    result = llm.chat_json(_ARCH_SYSTEM_PROMPT, user_prompt)
+    system_prompt = f"{_ARCH_SYSTEM_PROMPT}\n\n{language_instruction()}"
+    result = llm.chat_json(system_prompt, user_prompt)
     return {
         "architecture": result.get("architecture", ""),
         "repo_structure": result.get("repo_structure", ""),
@@ -295,7 +298,8 @@ def generate_readme_strategy(suggestion: ProjectSuggestion) -> dict[str, str]:
         target_audience=suggestion.target_audience,
         viral_hooks=", ".join(suggestion.viral_hooks),
     )
-    result = llm.chat_json(_README_SYSTEM_PROMPT, user_prompt)
+    system_prompt = f"{_README_SYSTEM_PROMPT}\n\n{language_instruction()}"
+    result = llm.chat_json(system_prompt, user_prompt)
     return {
         "readme_strategy": result.get("readme_strategy", ""),
         "naming_tips": result.get("naming_tips", ""),
@@ -427,5 +431,6 @@ def generate_project_doc(suggestion: ProjectSuggestion, existing_context: dict[s
     """
     llm = LLMClient()
     prompt = _build_project_doc_prompt(suggestion, existing_context)
+    system_prompt = f"{_PROJECT_DOC_SYSTEM_PROMPT}\n\n{language_instruction()}"
     # 整篇文档较长，显式放宽输出上限，避免被默认值截断
-    return llm.chat(_PROJECT_DOC_SYSTEM_PROMPT, prompt, max_tokens=max(llm.max_tokens, 8000))
+    return llm.chat(system_prompt, prompt, max_tokens=max(llm.max_tokens, 8000))

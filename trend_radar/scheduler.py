@@ -19,15 +19,19 @@ from trend_radar.collectors import (
 )
 from trend_radar.config import get_config, get_project_root
 from trend_radar.generator.suggestion_engine import generate_suggestions
-from trend_radar.models import DailyReport
+from trend_radar.models import DailyReport, TrendAnalysis
 from trend_radar.pusher.github_sync import sync_to_github
 from trend_radar.pusher.message_formatter import render_daily_report_markdown, render_message_summary
 from trend_radar.pusher.qq_bot import send_qq
 from trend_radar.pusher.telegram_bot import send_telegram
 
 
-async def run_collect_all() -> list:
-    """执行所有数据采集。"""
+async def run_collect_all(progress=None, total_steps: int = 5) -> list:
+    """执行所有数据采集。
+
+    progress: 可选回调 (step:int, total:int, label:str)。采集层不改变 step，
+    只在进入各源时用 label 上报"采集中: <源>"，让前端能感知采集阶段进度。
+    """
     cfg = get_config()["collectors"]
     all_items = []
 
@@ -44,13 +48,31 @@ async def run_collect_all() -> list:
     if cfg.get("twitter", {}).get("enabled", True):
         tasks.append(("twitter", TwitterAICollector(cfg["twitter"])))
 
-    for name, collector in tasks:
+    def _emit(label: str) -> None:
+        if progress is not None:
+            try:
+                progress(1, total_steps, label)
+            except Exception:
+                pass
+
+    _emit(f"采集数据 (0/{len(tasks)})")
+
+    async def _run_one(name: str, collector: object) -> tuple[str, list]:
         try:
             items = await collector.collect()
-            all_items.extend(items)
             logger.info(f"[{name}] 采集 {len(items)} 条")
+            return name, items
         except Exception as e:
             logger.error(f"[{name}] 采集异常: {e}")
+            return name, []
+
+    # 真正并发：asyncio.gather 同时拉所有源，单源超时不拖累其他源
+    results = await asyncio.gather(*[_run_one(n, c) for n, c in tasks])
+    done = 0
+    for name, items in results:
+        done += 1
+        _emit(f"采集数据 ({done}/{len(tasks)}) · {name} +{len(items)}")
+        all_items.extend(items)
 
     return all_items
 
@@ -78,7 +100,7 @@ async def run_daily(progress=None) -> DailyReport:
     # 1. 采集
     logger.info("Step 1/5: 数据采集...")
     _emit(1, "采集数据")
-    items = await run_collect_all()
+    items = await run_collect_all(progress=progress, total_steps=total)
     logger.info(f"共采集 {len(items)} 条数据")
     # 跨天新鲜度标记：近 7 天未出现过的 url 记为 NEW
     seen = db.get_seen_urls(date_str, days=7)
@@ -107,6 +129,7 @@ async def run_daily(progress=None) -> DailyReport:
     logger.info("Step 3/5: 项目建议生成...")
     _emit(3, "生成项目建议")
     n = get_config()["generator"]["daily_suggestions"]
+    # 累积追加：同一天可多次运行，每批产出不同点子，前端可挑选最佳。不做清理。
     try:
         suggestions = generate_suggestions(analysis, n, raw_items=items)
     except Exception as e:
@@ -137,10 +160,7 @@ async def run_daily(progress=None) -> DailyReport:
     # 5. 推送
     logger.info("Step 5/5: 推送...")
     _emit(5, "推送 / 同步")
-    summary = render_message_summary(report)
-    send_telegram(summary)
-    send_qq(summary)
-    sync_to_github(date_str, report.markdown)
+    await push_report(report)
 
     logger.info(f"===== TrendRadar 日报完成 {date_str} =====")
     return report
@@ -172,12 +192,33 @@ async def run_weekly() -> str:
     (report_dir / "weekly.md").write_text(weekly_md, encoding="utf-8")
 
     # 推送
-    send_telegram(weekly_md[:4000])
-    send_qq(weekly_md[:4000])
-    sync_to_github(date_str, weekly_md)
+    weekly_report = DailyReport(date=date_str, analysis=TrendAnalysis(date=date_str, daily_summary=""), suggestions=[])
+    weekly_report.markdown = weekly_md
+    await push_report(weekly_report)
 
     logger.info(f"===== TrendRadar 周报完成 {date_str} =====")
     return weekly_md
+
+
+async def push_report(report: DailyReport) -> None:
+    """并发推送 + 同步到各渠道，每个渠道独立 try/except，单渠道失败不影响其他。
+
+    Telegram/QQ/GitHub sync 均为同步 IO，用 asyncio.to_thread 包一层避免阻塞事件循环；
+    互相之间用 asyncio.gather 并发，总耗时≈最慢的那个渠道而非三者之和。
+    """
+    summary = render_message_summary(report)
+
+    async def _safe(name: str, fn, *args) -> None:
+        try:
+            await asyncio.to_thread(fn, *args)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[推送:{name}] 失败 (忽略): {e}")
+
+    await asyncio.gather(
+        _safe("telegram", send_telegram, summary),
+        _safe("qq", send_qq, summary),
+        _safe("github", sync_to_github, report.date, report.markdown),
+    )
 
 
 def run_daily_sync():
